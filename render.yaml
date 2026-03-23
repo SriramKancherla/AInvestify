@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: ainvestify
+    env: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: ENABLE_PROXY_HEADERS
+        value: "true"
+      - key: CORS_ALLOW_CREDENTIALS
+        value: "true"
+      - key: CORS_ALLOW_METHODS
+        value: GET,POST,OPTIONS
+      - key: CORS_ALLOW_HEADERS
+        value: Content-Type,Authorization
+      - key: RATE_LIMIT_INSIGHTS_COUNT
+        value: "60"
+      - key: RATE_LIMIT_INSIGHTS_WINDOW_SECONDS
+        value: "60"
+      - key: RATE_LIMIT_CHATBOT_COUNT
+        value: "30"
+      - key: RATE_LIMIT_CHATBOT_WINDOW_SECONDS
+        value: "60"
+      - key: HTTP_RETRY_COUNT
+        value: "2"
+      - key: HTTP_RETRY_BACKOFF_MS
+        value: "300"
+      - key: GEMINI_TIMEOUT_SECONDS
+        value: "12"

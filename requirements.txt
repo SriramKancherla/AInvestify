@@ -1,0 +1,15 @@
+pandas
+numpy
+scikit-learn
+joblib
+xgboost
+tensorflow
+feedparser
+fastapi
+uvicorn[standard]
+yfinance
+vaderSentiment
+requests
+python-dotenv
+pytest
+

@@ -1,0 +1,1375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AInvestify - Stock Insights</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --muted: #64748b;
+      --text: #0f172a;
+      --heading: #0b1220;
+      --accent: #16a34a;
+      --danger: #dc2626;
+      --border: #e2e8f0;
+      --input-bg: #f8fafc;
+      --chip-bg: #eef2ff;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      --page-grad-start: #f8fbff;
+      --page-grad-mid: #f5f7fb;
+      --page-grad-end: #eef2ff;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --panel: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --heading: #f8fafc;
+      --accent: #22c55e;
+      --danger: #f87171;
+      --border: #1f2937;
+      --input-bg: #0b1220;
+      --chip-bg: #1e293b;
+      --shadow: 0 10px 28px rgba(2, 6, 23, 0.5);
+      --page-grad-start: #0b1220;
+      --page-grad-mid: #0f172a;
+      --page-grad-end: #111827;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: linear-gradient(180deg, var(--page-grad-start) 0%, var(--page-grad-mid) 60%, var(--page-grad-end) 100%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container { width: 100%; max-width: 1320px; margin: 0 auto; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .logo-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #4f46e5 0%, #22c55e 100%);
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 8px 18px rgba(79, 70, 229, 0.2);
+    }
+    .title {
+      font-size: clamp(28px, 3.2vw, 36px);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: var(--heading);
+    }
+    .subtitle {
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+      max-width: 70ch;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+    .top-controls { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 10px; }
+    .theme-switch {
+      min-width: 96px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      box-shadow: none;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      padding: 8px 14px;
+      transition: all 160ms ease;
+    }
+    .theme-switch.light-mode {
+      background: #0f172a;
+      color: #f8fafc;
+      border-color: #1e293b;
+    }
+    .theme-switch.dark-mode {
+      background: #f8fafc;
+      color: #0f172a;
+      border-color: #cbd5e1;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0 2px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .inline-hint { color: var(--muted); font-size: 12px; }
+    .selectors-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .selector-col { display: flex; flex-direction: column; gap: 8px; }
+    .actions-row { display: flex; gap: 12px; margin-top: 12px; }
+    .quick-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 30px; }
+    .quick-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .quick-chip {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: var(--chip-bg);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .quick-chip:hover { border-color: #64748b; filter: brightness(0.98); }
+    .quick-chip-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--chip-bg);
+      padding: 2px 4px 2px 8px;
+    }
+    .quick-chip-item:hover { border-color: #64748b; }
+    .quick-chip-item .quick-chip {
+      border: none;
+      box-shadow: none;
+      background: transparent;
+      padding: 2px 0;
+      transform: none !important;
+    }
+    .quick-chip-remove {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      line-height: 14px;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+      box-shadow: none;
+    }
+    .quick-chip-item:hover .quick-chip-remove { display: inline-flex; align-items: center; justify-content: center; }
+    .quick-chip-remove:hover { color: var(--danger); border-color: var(--danger); }
+    .quick-chip-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .clear-recents-btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      box-shadow: none;
+      margin-left: 4px;
+    }
+    .clear-recents-btn:hover {
+      color: var(--danger);
+      border-color: var(--danger);
+      background: color-mix(in srgb, var(--panel) 86%, #fee2e2 14%);
+    }
+    input, select, button {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: var(--input-bg);
+      color: var(--text);
+      font-size: 14px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+      border: none;
+      color: #ffffff;
+      font-weight: 600;
+      box-shadow: 0 6px 16px rgba(79, 70, 229, 0.25);
+    }
+    button:hover { filter: brightness(1.03); transform: translateY(-1px); transition: 160ms ease; }
+    button:disabled { opacity: 0.7; cursor: not-allowed; }
+    details { margin-top: 12px; }
+    details summary { color: var(--muted); cursor: pointer; }
+    .advanced { margin-top: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .advanced label { color: var(--muted); font-size: 13px; line-height: 1.4; }
+    .advanced label input, .advanced label select { margin-top: 6px; width: 100%; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .kpi {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: linear-gradient(180deg, var(--panel) 0%, var(--input-bg) 100%);
+    }
+    .kpi .label { color: var(--muted); font-size: 12px; letter-spacing: 0.01em; }
+    .kpi .value { font-size: 20px; font-weight: 700; margin-top: 6px; color: var(--text); }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      margin-left: 8px;
+    }
+    .source-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--input-bg);
+    }
+    .source-badge strong { color: var(--text); font-weight: 600; }
+    .bullish { color: var(--accent); }
+    .bearish { color: var(--danger); }
+    .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .lists > div {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: var(--panel);
+      min-height: 180px;
+    }
+    .lists h3 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.01em;
+    }
+    .compare-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+    .compare-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: var(--panel);
+    }
+    #resultsGrid.compare-on {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .chart-wrap {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #ffffff;
+    }
+    .chart-title {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    canvas { width: 100%; max-height: 280px; }
+    .chip {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--chip-bg);
+      margin-left: 8px;
+    }
+    ul { margin: 10px 0 0; padding-left: 18px; }
+    li { margin: 8px 0; color: var(--text); line-height: 1.45; }
+    .muted { color: var(--muted); }
+    .error { color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; padding: 10px; border-radius: 8px; }
+    .loading .value,
+    .loading li,
+    .loading .muted {
+      opacity: 0.65;
+    }
+    .loading .value::after {
+      content: " ...";
+      color: var(--muted);
+      animation: pulse 1s infinite ease-in-out;
+    }
+    .muted-note {
+      display: inline-block;
+      margin-left: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
+    .results-enter {
+      animation: riseIn 260ms ease-out;
+    }
+    .card-enter {
+      animation: softIn 220ms ease-out;
+    }
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes softIn {
+      from { opacity: 0; transform: scale(0.995); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .chat-fab {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      width: 58px;
+      height: 58px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 12px 28px rgba(99, 102, 241, 0.35);
+      cursor: pointer;
+      z-index: 1000;
+    }
+    .chat-popup {
+      position: fixed;
+      right: 20px;
+      bottom: 88px;
+      width: 360px;
+      max-height: 520px;
+      display: none;
+      flex-direction: column;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      z-index: 1000;
+      box-shadow: var(--shadow);
+    }
+    .chat-header { padding: 10px 12px; background: var(--chip-bg); border-bottom: 1px solid var(--border); font-weight: 700; color: var(--text); }
+    .chat-body { padding: 10px; overflow: auto; min-height: 220px; max-height: 360px; }
+    .chat-row { margin-bottom: 8px; }
+    .chat-user { text-align: right; color: #2563eb; }
+    .chat-bot { text-align: left; color: #059669; }
+    [data-theme="dark"] .chat-user { color: #93c5fd; }
+    [data-theme="dark"] .chat-bot { color: #a7f3d0; }
+    .chat-input-wrap { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+    .site-footer {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .creator-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .creator-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: var(--input-bg);
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .creator-card a {
+      color: #2563eb;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .creator-card a:hover { text-decoration: underline; }
+    @media (max-width: 800px) {
+      body { padding: 16px; }
+      .selectors-row, .kpi-grid, .advanced, .lists, .compare-grid { grid-template-columns: 1fr; }
+      .actions-row { flex-direction: column; }
+      #resultsGrid.compare-on { grid-template-columns: 1fr; }
+      .creator-list { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div class="brand">
+      <span class="logo-mark" aria-hidden="true">AI</span>
+      <h1 class="title">AInvestify Stock Insights</h1>
+    </div>
+    <p class="subtitle">Pick a stock from dropdown, then optionally compare with another.</p>
+
+    <section class="panel">
+      <div class="top-controls">
+        <button id="themeToggleBtn" class="theme-switch" type="button">Dark</button>
+        <button id="compareBtn" type="button" style="background:linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);">Compare</button>
+      </div>
+      <div class="selectors-row">
+        <div class="selector-col">
+          <select id="stockSelect"></select>
+          <div class="quick-row">
+            <span class="quick-label">Recent Primary:</span>
+            <div id="recentChips" class="quick-chip-wrap"></div>
+            <button id="clearRecentsBtn" type="button" class="clear-recents-btn" title="Clear all recent primary and compare tickers">Clear Recents</button>
+          </div>
+        </div>
+        <div class="selector-col">
+          <select id="stockCompareSelect" style="display:none;"></select>
+          <div id="compareRecentRow" class="quick-row" style="display:none;">
+            <span class="quick-label">Recent Compare:</span>
+            <div id="recentChipsCompare" class="quick-chip-wrap"></div>
+          </div>
+        </div>
+      </div>
+      <div class="status-row">
+        <span id="selectionHint" class="inline-hint">Select a stock and click Get Insights.</span>
+        <span id="requestState" class="inline-hint"></span>
+      </div>
+      <div class="actions-row">
+        <button id="submitBtn">Get Insights</button>
+      </div>
+      <details>
+        <summary>Advanced options</summary>
+        <div class="advanced">
+          <label>
+            News source
+            <select id="newsSource">
+              <option value="auto">auto</option>
+              <option value="dataset">dataset</option>
+              <option value="live">live</option>
+            </select>
+          </label>
+          <label>
+            Sentiment weight (0 to 1)
+            <input id="sentimentWeight" type="number" step="0.1" min="0" max="1" value="0.3" />
+          </label>
+          <label>
+            Top items
+            <input id="topItems" type="number" min="1" max="10" value="3" />
+          </label>
+          <label>
+            Max live news
+            <input id="maxNews" type="number" min="1" max="50" value="10" />
+          </label>
+        </div>
+      </details>
+    </section>
+
+    <section id="errorBox" class="panel error" style="display:none;"></section>
+
+    <section id="results" class="panel" style="display:none;">
+      <h2 style="margin-top:0; margin-bottom:14px; font-size: 24px; letter-spacing: -0.01em;">Results <span id="compareModeChip" class="chip" style="display:none;">Compare mode</span></h2>
+      <div id="resultsGrid">
+      <div id="primaryResults" class="compare-card">
+      <h3 id="cmpTitleA" style="margin-top:0;"></h3>
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="label">Final Score</div>
+          <div class="value" id="finalScore">-</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Fundamentals</div>
+          <div class="value" id="fundScore">-</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Sentiment</div>
+          <div class="value" id="sentScore">-</div>
+        </div>
+      </div>
+
+      <p id="resolvedLine" class="muted" style="margin-top:12px;"></p>
+      <p id="confidenceLineA" class="muted"></p>
+      <p id="insightSummary" class="muted" style="font-weight:600;"></p>
+      <div class="source-badges">
+        <span id="sourceFundA" class="source-badge"></span>
+        <span id="sourceSentA" class="source-badge"></span>
+        <span id="sourceNewsA" class="source-badge"></span>
+      </div>
+      <p id="chartNoteA" class="muted" style="display:none;"></p>
+      <p id="sentMeta" class="muted" style="display:none;"></p>
+
+      <div class="lists">
+        <div>
+          <h3 class="bullish">Top Positive</h3>
+          <ul id="posList"></ul>
+        </div>
+        <div>
+          <h3 class="bearish">Top Negative</h3>
+          <ul id="negList"></ul>
+        </div>
+      </div>
+
+      <div id="chartWrapA" class="chart-wrap">
+        <p id="chartTitleA" class="chart-title">Price Chart</p>
+        <canvas id="priceChartA"></canvas>
+      </div>
+      </div>
+
+      <div id="compareResults" class="compare-grid" style="display:none;">
+        <div class="compare-card">
+          <h3 id="cmpTitleB" style="margin-top:0;"></h3>
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="label">Final Score</div>
+              <div class="value" id="cmpFinalB">-</div>
+            </div>
+            <div class="kpi">
+              <div class="label">Fundamentals</div>
+              <div class="value" id="cmpFundB">-</div>
+            </div>
+            <div class="kpi">
+              <div class="label">Sentiment</div>
+              <div class="value" id="cmpSentB">-</div>
+            </div>
+          </div>
+          <p id="cmpResolvedB" class="muted" style="margin-top:12px;"></p>
+          <p id="cmpConfidenceB" class="muted"></p>
+          <p id="cmpConclusionB" class="muted"></p>
+          <div class="source-badges">
+            <span id="sourceFundB" class="source-badge"></span>
+            <span id="sourceSentB" class="source-badge"></span>
+            <span id="sourceNewsB" class="source-badge"></span>
+          </div>
+          <p id="chartNoteB" class="muted" style="display:none;"></p>
+          <div class="lists">
+            <div>
+              <h3 class="bullish">Top Positive</h3>
+              <ul id="cmpPosB"></ul>
+            </div>
+            <div>
+              <h3 class="bearish">Top Negative</h3>
+              <ul id="cmpNegB"></ul>
+            </div>
+          </div>
+
+          <div id="chartWrapB" class="chart-wrap">
+            <p id="chartTitleB" class="chart-title">Compare Price Chart</p>
+            <canvas id="priceChartB"></canvas>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <p class="muted" style="margin:0; font-size: 12px;">
+        Note: "confidence" indicates how reliable the model output is based on current data quality and signal consistency. It does not represent company quality or investment certainty.
+      </p>
+      <p style="margin:10px 0 0; font-size: 14px; font-weight: 700; color: var(--text);">Creators</p>
+      <div class="creator-list">
+        <div class="creator-card">
+          <strong>Sriram Kancherla</strong><br />
+          LinkedIn:
+          <a href="https://www.linkedin.com/in/sriram-kancherla-80a7b028a/" target="_blank" rel="noopener noreferrer">https://www.linkedin.com/in/sriram-kancherla-80a7b028a/</a><br />
+          Gmail:
+          <a href="mailto:Kancherlasriram2006@gmail.com">Kancherlasriram2006@gmail.com</a>
+        </div>
+        <div class="creator-card">
+          <strong>Viswanath Parashuram Yadavalli</strong><br />
+          LinkedIn:
+          <a href="https://www.linkedin.com/in/vishwa-yadavalli-65503628b/" target="_blank" rel="noopener noreferrer">https://www.linkedin.com/in/vishwa-yadavalli-65503628b/</a><br />
+          Gmail:
+          <a href="mailto:vishwanaathh4@gmail.com">vishwanaathh4@gmail.com</a>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <button id="chatFab" class="chat-fab" title="Open AI chat">AI</button>
+  <section id="chatPopup" class="chat-popup">
+    <div class="chat-header">AI Assistant</div>
+    <div id="chatBody" class="chat-body">
+      <div class="chat-row chat-bot">Ask me about the selected stock, for example: "summary", "fundamentals", or "sentiment".</div>
+    </div>
+    <div class="chat-input-wrap">
+      <input id="chatInput" placeholder="Type your question..." />
+      <button id="chatSendBtn" type="button">Send</button>
+    </div>
+  </section>
+
+  <script>
+    const stockSelect = document.getElementById("stockSelect");
+    const stockCompareSelect = document.getElementById("stockCompareSelect");
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    const compareBtn = document.getElementById("compareBtn");
+    const resultsGrid = document.getElementById("resultsGrid");
+    const compareResults = document.getElementById("compareResults");
+    const compareModeChip = document.getElementById("compareModeChip");
+    const submitBtn = document.getElementById("submitBtn");
+    const errorBox = document.getElementById("errorBox");
+    const results = document.getElementById("results");
+    const chatFab = document.getElementById("chatFab");
+    const chatPopup = document.getElementById("chatPopup");
+    const chatBody = document.getElementById("chatBody");
+    const chatInput = document.getElementById("chatInput");
+    const chatSendBtn = document.getElementById("chatSendBtn");
+    const newsSourceEl = document.getElementById("newsSource");
+    const sentimentWeightEl = document.getElementById("sentimentWeight");
+    const topItemsEl = document.getElementById("topItems");
+    const maxNewsEl = document.getElementById("maxNews");
+    const requestState = document.getElementById("requestState");
+    const selectionHint = document.getElementById("selectionHint");
+    const recentChips = document.getElementById("recentChips");
+    const recentChipsCompare = document.getElementById("recentChipsCompare");
+    const compareRecentRow = document.getElementById("compareRecentRow");
+    const clearRecentsBtn = document.getElementById("clearRecentsBtn");
+    let compareMode = false;
+    let tickerOptions = [];
+    let chartA = null;
+    let chartB = null;
+    const UI_STATE_KEY = "ainvestify_ui_state_v1";
+    const THEME_KEY = "ainvestify_theme_v1";
+    const RECENT_PRIMARY_KEY = "ainvestify_recent_primary_symbols_v1";
+    const RECENT_COMPARE_KEY = "ainvestify_recent_compare_symbols_v1";
+
+    function setError(message) {
+      if (!message) {
+        errorBox.style.display = "none";
+        errorBox.textContent = "";
+        return;
+      }
+      errorBox.style.display = "block";
+      errorBox.textContent = message;
+    }
+
+    function apiErrorMessage(payload, fallback) {
+      if (!payload) return fallback;
+      if (typeof payload.detail === "string") return payload.detail;
+      if (payload.detail?.error?.message) return payload.detail.error.message;
+      if (payload.error?.message) return payload.error.message;
+      return fallback;
+    }
+
+    function sourceLabel(v) {
+      if (!v) return "N/A";
+      if (v === "dataset") return "Dataset";
+      if (v === "dataset_tweets") return "Dataset Tweets";
+      if (v === "live_news") return "Live News";
+      if (v === "live_yfinance") return "Yahoo Finance (Live)";
+      return String(v);
+    }
+
+    function setSourceBadges(prefix, data) {
+      const fund = sourceLabel(data?.fundamentals?.source);
+      const sent = sourceLabel(data?.sentiment?.source);
+      const pref = data?.meta?.news_source ? `Pref: ${sourceLabel(data.meta.news_source)}` : "Pref: N/A";
+      const fundEl = document.getElementById(`sourceFund${prefix}`);
+      const sentEl = document.getElementById(`sourceSent${prefix}`);
+      const newsEl = document.getElementById(`sourceNews${prefix}`);
+      if (fundEl) fundEl.innerHTML = `<strong>Fundamentals</strong> ${fund}`;
+      if (sentEl) sentEl.innerHTML = `<strong>Sentiment</strong> ${sent}`;
+      if (newsEl) newsEl.innerHTML = `<strong>News Mode</strong> ${pref}`;
+    }
+
+    function persistUIState() {
+      const snapshot = {
+        stock: stockSelect.value || "",
+        compareStock: stockCompareSelect.value || "",
+        compareMode,
+        newsSource: newsSourceEl.value,
+        sentimentWeight: sentimentWeightEl.value,
+        topItems: topItemsEl.value,
+        maxNews: maxNewsEl.value,
+        theme: document.documentElement.getAttribute("data-theme") || "light"
+      };
+      localStorage.setItem(UI_STATE_KEY, JSON.stringify(snapshot));
+    }
+
+    function applyTheme(theme) {
+      const normalized = theme === "dark" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", normalized);
+      localStorage.setItem(THEME_KEY, normalized);
+      themeToggleBtn.classList.remove("light-mode", "dark-mode");
+      // Show the opposite mode action as a clear on/off toggle.
+      if (normalized === "dark") {
+        themeToggleBtn.textContent = "Light";
+        themeToggleBtn.classList.add("dark-mode");
+      } else {
+        themeToggleBtn.textContent = "Dark";
+        themeToggleBtn.classList.add("light-mode");
+      }
+    }
+    applyTheme(localStorage.getItem(THEME_KEY) || "light");
+
+    function readRecentSymbols(kind) {
+      const key = kind === "compare" ? RECENT_COMPARE_KEY : RECENT_PRIMARY_KEY;
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        return arr.filter((v) => typeof v === "string" && v.trim()).slice(0, 6);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function writeRecentSymbols(symbol, kind = "primary") {
+      if (!symbol) return;
+      const key = kind === "compare" ? RECENT_COMPARE_KEY : RECENT_PRIMARY_KEY;
+      const current = readRecentSymbols(kind).filter((s) => s !== symbol);
+      current.unshift(symbol);
+      localStorage.setItem(key, JSON.stringify(current.slice(0, 6)));
+      renderRecentChips();
+    }
+
+    function removeRecentSymbol(symbol, kind = "primary") {
+      if (!symbol) return;
+      const key = kind === "compare" ? RECENT_COMPARE_KEY : RECENT_PRIMARY_KEY;
+      const current = readRecentSymbols(kind).filter((s) => s !== symbol);
+      localStorage.setItem(key, JSON.stringify(current.slice(0, 6)));
+      renderRecentChips();
+    }
+
+    function clearAllRecents() {
+      localStorage.removeItem(RECENT_PRIMARY_KEY);
+      localStorage.removeItem(RECENT_COMPARE_KEY);
+      renderRecentChips();
+    }
+
+    function renderRecentChips() {
+      const primaryItems = readRecentSymbols("primary");
+      const compareItems = readRecentSymbols("compare");
+      if (!recentChips || !recentChipsCompare) return;
+      recentChips.innerHTML = "";
+      recentChipsCompare.innerHTML = "";
+      if (primaryItems.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "inline-hint";
+        empty.textContent = "none yet";
+        recentChips.appendChild(empty);
+      }
+      if (compareItems.length === 0) {
+        const emptyB = document.createElement("span");
+        emptyB.className = "inline-hint";
+        emptyB.textContent = "none yet";
+        recentChipsCompare.appendChild(emptyB);
+      }
+      for (const symbol of primaryItems) {
+        const chipWrap = document.createElement("div");
+        chipWrap.className = "quick-chip-item";
+
+        const chipA = document.createElement("button");
+        chipA.type = "button";
+        chipA.className = "quick-chip";
+        chipA.textContent = symbol;
+        chipA.addEventListener("click", () => {
+          stockSelect.value = symbol;
+          refreshCompareOptions();
+          updateSelectionHint();
+          persistUIState();
+          runInsights();
+        });
+        const removeA = document.createElement("button");
+        removeA.type = "button";
+        removeA.className = "quick-chip-remove";
+        removeA.textContent = "×";
+        removeA.title = `Remove ${symbol}`;
+        removeA.addEventListener("click", (e) => {
+          e.stopPropagation();
+          removeRecentSymbol(symbol, "primary");
+        });
+        chipWrap.appendChild(chipA);
+        chipWrap.appendChild(removeA);
+        recentChips.appendChild(chipWrap);
+      }
+      for (const symbol of compareItems) {
+        const chipWrap = document.createElement("div");
+        chipWrap.className = "quick-chip-item";
+
+        const chipB = document.createElement("button");
+        chipB.type = "button";
+        chipB.className = "quick-chip";
+        chipB.textContent = symbol;
+        chipB.addEventListener("click", () => {
+          if (!compareMode) {
+            compareMode = true;
+            stockCompareSelect.style.display = "block";
+            compareRecentRow.style.display = "flex";
+            updateCompareButtonStyle();
+          }
+          refreshCompareOptions();
+          stockCompareSelect.value = symbol;
+          updateSelectionHint();
+          persistUIState();
+          if (stockSelect.value && stockCompareSelect.value && stockSelect.value !== stockCompareSelect.value) {
+            runInsights();
+          }
+        });
+        const removeB = document.createElement("button");
+        removeB.type = "button";
+        removeB.className = "quick-chip-remove";
+        removeB.textContent = "×";
+        removeB.title = `Remove ${symbol}`;
+        removeB.addEventListener("click", (e) => {
+          e.stopPropagation();
+          removeRecentSymbol(symbol, "compare");
+        });
+        chipWrap.appendChild(chipB);
+        chipWrap.appendChild(removeB);
+        recentChipsCompare.appendChild(chipWrap);
+      }
+    }
+
+    function readUIState() {
+      try {
+        const raw = localStorage.getItem(UI_STATE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function setLoadingState(isLoading) {
+      submitBtn.disabled = isLoading;
+      submitBtn.textContent = isLoading ? "Loading..." : "Get Insights";
+      requestState.textContent = isLoading ? "Fetching fundamentals, sentiment, and chart..." : "";
+      const primaryCard = document.getElementById("primaryResults");
+      if (primaryCard) primaryCard.classList.toggle("loading", isLoading);
+      const compareCard = compareResults.querySelector(".compare-card");
+      if (compareCard) compareCard.classList.toggle("loading", isLoading && compareMode);
+      results.classList.toggle("results-enter", !isLoading);
+    }
+
+    function updateSelectionHint() {
+      const a = stockSelect.value || "none";
+      const b = compareMode ? (stockCompareSelect.value || "none") : "off";
+      selectionHint.textContent = compareMode
+        ? `Primary: ${a} | Compare: ${b}`
+        : `Primary: ${a}`;
+    }
+
+    function updateCompareButtonStyle() {
+      compareBtn.textContent = compareMode ? "Cancel Compare" : "Compare";
+      compareBtn.style.background = compareMode
+        ? "linear-gradient(135deg, #a855f7 0%, #7c3aed 100%)"
+        : "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)";
+    }
+
+    function animateCard(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove("card-enter");
+      void el.offsetWidth;
+      el.classList.add("card-enter");
+    }
+
+    function fillList(el, items) {
+      el.innerHTML = "";
+      if (!items || items.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No items";
+        el.appendChild(li);
+        return;
+      }
+      for (const item of items) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        el.appendChild(li);
+      }
+    }
+
+    function fundamentalsBucket(score) {
+      if (score == null) return "unknown";
+      if (score >= 0.65) return "good";
+      if (score >= 0.45) return "average";
+      return "weak";
+    }
+
+    function sentimentBucket(score) {
+      if (score == null) return "unknown";
+      if (score >= 0.60) return "bullish";
+      if (score >= 0.40) return "neutral";
+      return "bearish";
+    }
+
+    function buildInsightSentence(fundScore, sentScore) {
+      const f = fundamentalsBucket(fundScore);
+      const s = sentimentBucket(sentScore);
+
+      const fText =
+        f === "good" ? "good fundamentals" :
+        f === "average" ? "average fundamentals" :
+        f === "weak" ? "weak fundamentals" : "fundamentals unavailable";
+
+      const sText =
+        s === "bullish" ? "bullish sentiment" :
+        s === "neutral" ? "neutral sentiment" :
+        s === "bearish" ? "bearish sentiment" : "sentiment unavailable";
+
+      if (f === "unknown" && s === "unknown") {
+        return "Fundamentals and sentiment are unavailable for this selection.";
+      }
+      if (f === "unknown") {
+        return `Fundamentals unavailable with ${sText}.`;
+      }
+      if (s === "unknown") {
+        return `${fText} with sentiment unavailable.`;
+      }
+      return `${fText} with ${sText}.`;
+    }
+
+    function confidenceLabel(v) {
+      if (v == null) return "unknown";
+      if (v >= 0.8) return "high";
+      if (v >= 0.6) return "moderate";
+      if (v >= 0.4) return "low";
+      return "very low";
+    }
+
+    function confidenceText(v) {
+      if (v == null) return "unknown";
+      return `${confidenceLabel(v)} (${Number(v).toFixed(2)})`;
+    }
+
+    function populateTickerSelect(selectEl, options, placeholder) {
+      selectEl.innerHTML = "";
+      const first = document.createElement("option");
+      first.value = "";
+      first.textContent = placeholder;
+      selectEl.appendChild(first);
+      for (const t of options) {
+        const opt = document.createElement("option");
+        opt.value = t.symbol;
+        opt.textContent = t.label;
+        selectEl.appendChild(opt);
+      }
+    }
+
+    function refreshCompareOptions() {
+      const selectedPrimary = stockSelect.value;
+      const filtered = tickerOptions.filter((t) => t.symbol !== selectedPrimary);
+      const prev = stockCompareSelect.value;
+      populateTickerSelect(stockCompareSelect, filtered, "Select stock to compare...");
+      if (filtered.some((t) => t.symbol === prev)) {
+        stockCompareSelect.value = prev;
+      }
+      updateSelectionHint();
+      persistUIState();
+    }
+
+    async function loadTickers() {
+      const resp = await fetch("/tickers");
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(apiErrorMessage(data, "Failed to load tickers."));
+      tickerOptions = data.tickers || [];
+      populateTickerSelect(stockSelect, tickerOptions, "Select stock...");
+      refreshCompareOptions();
+
+      const savedTheme = localStorage.getItem(THEME_KEY) || "light";
+      applyTheme(savedTheme);
+
+      const saved = readUIState();
+      if (saved) {
+        if (saved.newsSource) newsSourceEl.value = saved.newsSource;
+        if (saved.sentimentWeight) sentimentWeightEl.value = saved.sentimentWeight;
+        if (saved.topItems) topItemsEl.value = saved.topItems;
+        if (saved.maxNews) maxNewsEl.value = saved.maxNews;
+        if (saved.stock && tickerOptions.some((t) => t.symbol === saved.stock)) {
+          stockSelect.value = saved.stock;
+        }
+        if (saved.compareMode) {
+          compareMode = true;
+          stockCompareSelect.style.display = "block";
+          compareRecentRow.style.display = "flex";
+          updateCompareButtonStyle();
+          refreshCompareOptions();
+          if (saved.compareStock) stockCompareSelect.value = saved.compareStock;
+        }
+        if (saved.theme) {
+          applyTheme(saved.theme);
+        }
+      }
+      updateSelectionHint();
+      renderRecentChips();
+    }
+
+    function renderCompareCard(prefix, symbol, data) {
+      document.getElementById(`cmpTitle${prefix}`).textContent = symbol;
+      document.getElementById(`cmpFinal${prefix}`).textContent =
+        `${(data.final?.score ?? 0).toFixed(3)} (${data.final?.label ?? "N/A"})`;
+      document.getElementById(`cmpFund${prefix}`).textContent =
+        data.fundamentals?.score == null ? "N/A" : data.fundamentals.score.toFixed(3);
+      document.getElementById(`cmpSent${prefix}`).textContent =
+        data.sentiment?.score == null ? "N/A" : data.sentiment.score.toFixed(3);
+
+      const f = data.resolved?.fundamentals || {};
+      const s = data.resolved?.sentiment || {};
+      const sentimentSource = data.sentiment?.source || "N/A";
+      const liveQuery = data.meta?.news_query_used || symbol;
+      const fundamentalsResolved =
+        f.symbol == null ? "N/A" : `${f.symbol}${f.company ? " - " + f.company : ""}`;
+      let sentimentResolved = `${s.symbol ?? "N/A"}${s.company ? " - " + s.company : ""}`;
+      if (sentimentSource === "live_news") {
+        sentimentResolved = `Live News (query: ${liveQuery})`;
+      }
+      const resolvedEl = document.getElementById(`cmpResolved${prefix}`);
+      if (resolvedEl) {
+        resolvedEl.textContent = `Fundamentals: ${fundamentalsResolved} | Sentiment: ${sentimentResolved}`;
+      }
+      const conclusionEl = document.getElementById(`cmpConclusion${prefix}`);
+      const confidenceEl = document.getElementById(`cmpConfidence${prefix}`);
+      if (confidenceEl) {
+        confidenceEl.textContent = `confidence: ${confidenceText(data.final?.confidence?.overall)}`;
+      }
+      if (conclusionEl) {
+        conclusionEl.textContent =
+          `conclusion: ${buildInsightSentence(data.fundamentals?.score, data.sentiment?.score)}`;
+      }
+      fillList(document.getElementById(`cmpPos${prefix}`), data.sentiment?.top_positive_examples || []);
+      fillList(document.getElementById(`cmpNeg${prefix}`), data.sentiment?.top_negative_examples || []);
+    }
+
+    function renderPriceChart(canvasId, existingChart, titleId, ticker, chartData, wrapId, noteId) {
+      const canvas = document.getElementById(canvasId);
+      const titleEl = document.getElementById(titleId);
+      const wrapEl = document.getElementById(wrapId);
+      const noteEl = document.getElementById(noteId);
+      if (!canvas || !chartData || !Array.isArray(chartData.points) || chartData.points.length === 0) {
+        if (wrapEl) wrapEl.style.display = "none";
+        if (noteEl) {
+          noteEl.style.display = "block";
+          noteEl.textContent = "Chart unavailable for this ticker right now; fundamentals and sentiment insights are still shown.";
+        }
+        if (existingChart) existingChart.destroy();
+        return null;
+      }
+
+      const labels = chartData.points.map((p) => p.date);
+      const closes = chartData.points.map((p) => p.close);
+
+      if (existingChart) existingChart.destroy();
+      if (wrapEl) wrapEl.style.display = "block";
+      if (noteEl) {
+        noteEl.style.display = "none";
+        noteEl.textContent = "";
+      }
+      if (titleEl) {
+        titleEl.textContent = `${ticker} Price Chart (${chartData.source || "unknown source"})`;
+      }
+
+      return new Chart(canvas, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: `${ticker} Close`,
+              data: closes,
+              borderColor: "#22c55e",
+              backgroundColor: "rgba(34, 197, 94, 0.2)",
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0.25,
+              fill: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: "#9ca3af" } }
+          },
+          scales: {
+            x: {
+              ticks: { color: "#9ca3af", maxTicksLimit: 8 },
+              grid: { color: "rgba(156,163,175,0.08)" }
+            },
+            y: {
+              ticks: { color: "#9ca3af" },
+              grid: { color: "rgba(156,163,175,0.08)" }
+            }
+          }
+        }
+      });
+    }
+
+    async function runInsights() {
+      const input = stockSelect.value;
+      const compareInput = stockCompareSelect.value;
+      if (!input) {
+        setError("Please select a stock.");
+        return;
+      }
+      if (compareMode && !compareInput) {
+        setError("Please select second stock for comparison.");
+        return;
+      }
+      if (compareMode && input === compareInput) {
+        setError("Please choose two different stocks for comparison.");
+        return;
+      }
+
+      setError("");
+      setLoadingState(true);
+      persistUIState();
+
+      const payload = {
+        input,
+        news_source: document.getElementById("newsSource").value,
+        sentiment_weight: Number(document.getElementById("sentimentWeight").value),
+        top_items: Number(document.getElementById("topItems").value),
+        max_news: Number(document.getElementById("maxNews").value),
+        train_missing: false
+      };
+
+      try {
+        const reqA = fetch("/api/insights", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const reqChartA = fetch(`/chart/${encodeURIComponent(input)}?period=6mo&interval=1d`);
+        const reqB = compareMode
+          ? fetch("/api/insights", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...payload, input: compareInput })
+            })
+          : null;
+        const reqChartB = compareMode
+          ? fetch(`/chart/${encodeURIComponent(compareInput)}?period=6mo&interval=1d`)
+          : null;
+
+        const [resp, chartRespA, respCompare, chartRespB] = await Promise.all([
+          reqA,
+          reqChartA,
+          reqB,
+          reqChartB
+        ]);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(apiErrorMessage(data, "Request failed."));
+
+        // Chart must never block fundamentals/sentiment rendering.
+        let chartDataA = null;
+        if (chartRespA?.ok) {
+          chartDataA = await chartRespA.json();
+        }
+
+        let dataCompare = null;
+        let chartDataB = null;
+        if (respCompare) {
+          dataCompare = await respCompare.json();
+          if (!respCompare.ok) throw new Error(apiErrorMessage(dataCompare, "Compare request failed."));
+        }
+        if (chartRespB?.ok) {
+          chartDataB = await chartRespB.json();
+        }
+
+        const finalLabel = data.final?.label || "";
+      document.getElementById("cmpTitleA").textContent = input;
+      document.getElementById("finalScore").textContent =
+          `${(data.final?.score ?? 0).toFixed(3)} (${finalLabel})`;
+        document.getElementById("fundScore").textContent =
+          data.fundamentals?.score == null ? "N/A" : data.fundamentals.score.toFixed(3);
+        document.getElementById("sentScore").textContent =
+          data.sentiment?.score == null ? "N/A" : data.sentiment.score.toFixed(3);
+
+        const f = data.resolved?.fundamentals || {};
+        const s = data.resolved?.sentiment || {};
+        const sentimentSource = data.sentiment?.source || "N/A";
+        const liveQuery = data.meta?.news_query_used || input;
+
+        const fundamentalsResolved =
+          f.symbol == null ? "N/A" : `${f.symbol}${f.company ? " - " + f.company : ""}`;
+
+        let sentimentResolved = `${s.symbol ?? "N/A"}${s.company ? " - " + s.company : ""}`;
+        if (sentimentSource === "live_news") {
+          sentimentResolved = `Live News (query: ${liveQuery})`;
+        }
+
+        document.getElementById("resolvedLine").textContent =
+          `Fundamentals: ${fundamentalsResolved} | Sentiment: ${sentimentResolved}`;
+        document.getElementById("confidenceLineA").textContent =
+          `confidence: ${confidenceText(data.final?.confidence?.overall)}`;
+        document.getElementById("insightSummary").textContent =
+          `conclusion: ${buildInsightSentence(data.fundamentals?.score, data.sentiment?.score)}`;
+        setSourceBadges("A", data);
+        animateCard("primaryResults");
+
+        document.getElementById("sentMeta").textContent = "";
+
+        fillList(document.getElementById("posList"), data.sentiment?.top_positive_examples || []);
+        fillList(document.getElementById("negList"), data.sentiment?.top_negative_examples || []);
+
+        if (compareMode && dataCompare) {
+          compareModeChip.style.display = "inline-block";
+          compareResults.style.display = "grid";
+          resultsGrid.classList.add("compare-on");
+          renderCompareCard("B", compareInput, dataCompare);
+          setSourceBadges("B", dataCompare);
+          animateCard("compareResults");
+          chartB = renderPriceChart(
+            "priceChartB",
+            chartB,
+            "chartTitleB",
+            compareInput,
+            chartDataB,
+            "chartWrapB",
+            "chartNoteB"
+          );
+        } else {
+          compareModeChip.style.display = "none";
+          compareResults.style.display = "none";
+          resultsGrid.classList.remove("compare-on");
+          if (chartB) {
+            chartB.destroy();
+            chartB = null;
+          }
+        }
+
+        chartA = renderPriceChart(
+          "priceChartA",
+          chartA,
+          "chartTitleA",
+          input,
+          chartDataA,
+          "chartWrapA",
+          "chartNoteA"
+        );
+
+        results.style.display = "block";
+        requestState.textContent = "Updated just now.";
+        writeRecentSymbols(input, "primary");
+        if (compareMode && compareInput) {
+          writeRecentSymbols(compareInput, "compare");
+        }
+      } catch (err) {
+        setError(err.message || "Something went wrong.");
+        requestState.textContent = "Request failed.";
+      } finally {
+        setLoadingState(false);
+      }
+    }
+
+    function appendChatMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = `chat-row ${role === "user" ? "chat-user" : "chat-bot"}`;
+      div.textContent = text;
+      chatBody.appendChild(div);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    async function sendChatMessage() {
+      const message = (chatInput.value || "").trim();
+      if (!message) return;
+      appendChatMessage("user", message);
+      chatInput.value = "";
+      const selectedSymbol = stockSelect.value || null;
+      chatSendBtn.disabled = true;
+      appendChatMessage("bot", "Thinking...");
+      try {
+        const resp = await fetch("/chatbot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, selected_symbol: selectedSymbol })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(apiErrorMessage(data, "Chat request failed."));
+        if (chatBody.lastChild) chatBody.removeChild(chatBody.lastChild);
+        if (data.provider === "local") {
+          if ((data.fallback_reason || "").includes("http_429")) {
+            appendChatMessage(
+              "bot",
+              "Gemini is temporarily unavailable (quota reached). Using local assistant."
+            );
+          } else {
+            appendChatMessage("bot", "Using local assistant response.");
+          }
+        }
+        appendChatMessage("bot", data.reply || "No response.");
+      } catch (e) {
+        if (chatBody.lastChild) chatBody.removeChild(chatBody.lastChild);
+        appendChatMessage("bot", e.message || "Chat unavailable right now.");
+      } finally {
+        chatSendBtn.disabled = false;
+      }
+    }
+
+    compareBtn.addEventListener("click", () => {
+      compareMode = !compareMode;
+      stockCompareSelect.style.display = compareMode ? "block" : "none";
+      compareRecentRow.style.display = compareMode ? "flex" : "none";
+      updateCompareButtonStyle();
+      compareResults.style.display = "none";
+      compareModeChip.style.display = "none";
+      resultsGrid.classList.remove("compare-on");
+      refreshCompareOptions();
+      updateSelectionHint();
+      persistUIState();
+      if (compareMode && stockSelect.value && stockCompareSelect.value) {
+        runInsights();
+      }
+    });
+
+    stockSelect.addEventListener("change", () => {
+      refreshCompareOptions();
+      updateSelectionHint();
+      persistUIState();
+    });
+    stockCompareSelect.addEventListener("change", () => {
+      updateSelectionHint();
+      persistUIState();
+      if (compareMode && stockSelect.value && stockCompareSelect.value) {
+        runInsights();
+      }
+    });
+    newsSourceEl.addEventListener("change", persistUIState);
+    sentimentWeightEl.addEventListener("change", persistUIState);
+    topItemsEl.addEventListener("change", persistUIState);
+    maxNewsEl.addEventListener("change", persistUIState);
+    clearRecentsBtn.addEventListener("click", clearAllRecents);
+    submitBtn.addEventListener("click", runInsights);
+    loadTickers().catch((e) => setError(e.message || "Failed to initialize ticker list."));
+    themeToggleBtn.addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme") || "light";
+      const next = current === "dark" ? "light" : "dark";
+      applyTheme(next);
+      persistUIState();
+    });
+
+    chatFab.addEventListener("click", () => {
+      chatPopup.style.display = chatPopup.style.display === "flex" ? "none" : "flex";
+      if (chatPopup.style.display === "flex") {
+        chatInput.focus();
+      }
+    });
+    chatSendBtn.addEventListener("click", sendChatMessage);
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendChatMessage();
+    });
+  </script>
+</body>
+</html>
+
