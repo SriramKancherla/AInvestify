@@ -1,0 +1,81 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense,Dropout
+from tensorflow.keras.optimizers import Adam
+import joblib
+
+
+data=pd.read_csv('../datasets/financials_cleaned.csv')
+numeric_cols = [
+    "Price", "Price/Earnings", "Dividend_Yield", "52w_low", "52w_high",
+    "Market_Cap", "EBITDA", "Price/Sales", "Price/Book", "Book_Value"
+]
+data[numeric_cols] = data[numeric_cols].apply(pd.to_numeric, errors="coerce")
+data = data.dropna(subset=numeric_cols)
+
+data["selling_zone"] = np.where(
+    ((data["52w_high"] - data["Price"]) / data["52w_high"]) <= 0.10,
+    1, 0
+)
+
+data["ebitda_to_mcap"] = data["EBITDA"] / data["Market_Cap"]
+
+data["fundamental_score"] = (
+    0.20 * (data["Price/Earnings"].between(10, 25)).astype(int) +
+    0.20 * (data["Market_Cap"] >= 10000000000).astype(int) +
+    0.20 * (data["ebitda_to_mcap"].between(0.05, 0.15)).astype(int) +
+    0.20 * ((data["Price/Sales"] < 1) | (data["Price/Sales"].between(1, 2))).astype(int) +
+    0.20 * (
+        (data["Dividend_Yield"] > 3.5) |
+        (data["selling_zone"] == 1) |
+        (data["Price/Book"] < 3)
+    ).astype(int)
+)
+
+X = data[
+    [
+        "Market_Cap",
+        "Price",
+        "52w_high",
+        "52w_low",
+        "Book_Value",
+        "Price/Earnings",
+        "Dividend_Yield",
+        "EBITDA",
+        "Price/Sales",
+        "Price/Book"
+    ]
+]
+
+Y = data["fundamental_score"]
+Y = data["fundamental_score"].values.reshape(-1, 1) 
+X_scaler=MinMaxScaler()
+Y_scaler=MinMaxScaler(feature_range=(0,1))
+X_scaled=X_scaler.fit_transform(X)
+Y_scaled=Y_scaler.fit_transform(Y)
+
+
+joblib.dump(X_scaler, 'keras_X_scaler.pkl')
+joblib.dump(Y_scaler, 'keras_Y_scaler.pkl')
+
+model=Sequential([
+    Dense(32,activation='relu',input_shape=(X_scaled.shape[1],)),
+    Dropout(0.1),
+    Dense(16,activation='relu'),
+    Dropout(0.1),
+    Dense(1,activation='sigmoid'),
+    ])
+model.compile(optimizer=Adam(learning_rate=0.001),loss='mse',metrics=['mae'])
+model.fit(X_scaled, Y_scaled, epochs=500, batch_size=16, verbose=1)
+
+
+model.save('keras_stockfundamentalsscorer.h5')
+
+print("✅ Custom Keras neural network saved successfully!")
+
+
+
+
