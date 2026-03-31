@@ -229,6 +229,18 @@
     }
     .kpi .label { color: var(--muted); font-size: 12px; letter-spacing: 0.01em; }
     .kpi .value { font-size: 20px; font-weight: 700; margin-top: 6px; color: var(--text); }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .metrics-kpi {
+      padding: 12px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, var(--panel) 0%, var(--input-bg) 100%);
+    }
+    .metrics-kpi .value { font-size: 16px; margin-top: 6px; }
     .badge {
       display: inline-block;
       font-size: 12px;
@@ -413,7 +425,7 @@
     .creator-card a:hover { text-decoration: underline; }
     @media (max-width: 800px) {
       body { padding: 16px; }
-      .selectors-row, .kpi-grid, .advanced, .lists, .compare-grid { grid-template-columns: 1fr; }
+      .selectors-row, .kpi-grid, .metrics-grid, .advanced, .lists, .compare-grid { grid-template-columns: 1fr; }
       .actions-row { flex-direction: column; }
       #resultsGrid.compare-on { grid-template-columns: 1fr; }
       .creator-list { grid-template-columns: 1fr; }
@@ -506,6 +518,41 @@
         </div>
       </div>
 
+      <div class="metrics-grid">
+        <div class="kpi metrics-kpi">
+          <div class="label">Current Price</div>
+          <div class="value" id="currentPriceA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">52W High</div>
+          <div class="value" id="high52wA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">52W Low</div>
+          <div class="value" id="low52wA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">Market Cap</div>
+          <div class="value" id="marketCapA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">P/E</div>
+          <div class="value" id="peRatioA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">P/B</div>
+          <div class="value" id="pbRatioA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">Dividend Yield</div>
+          <div class="value" id="dividendYieldA">-</div>
+        </div>
+        <div class="kpi metrics-kpi">
+          <div class="label">EBITDA</div>
+          <div class="value" id="ebitdaA">-</div>
+        </div>
+      </div>
+
       <p id="resolvedLine" class="muted" style="margin-top:12px;"></p>
       <p id="confidenceLineA" class="muted"></p>
       <p id="insightSummary" class="muted" style="font-weight:600;"></p>
@@ -551,6 +598,42 @@
               <div class="value" id="cmpSentB">-</div>
             </div>
           </div>
+
+          <div class="metrics-grid">
+            <div class="kpi metrics-kpi">
+              <div class="label">Current Price</div>
+              <div class="value" id="currentPriceB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">52W High</div>
+              <div class="value" id="high52wB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">52W Low</div>
+              <div class="value" id="low52wB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">Market Cap</div>
+              <div class="value" id="marketCapB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">P/E</div>
+              <div class="value" id="peRatioB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">P/B</div>
+              <div class="value" id="pbRatioB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">Dividend Yield</div>
+              <div class="value" id="dividendYieldB">-</div>
+            </div>
+            <div class="kpi metrics-kpi">
+              <div class="label">EBITDA</div>
+              <div class="value" id="ebitdaB">-</div>
+            </div>
+          </div>
+
           <p id="cmpResolvedB" class="muted" style="margin-top:12px;"></p>
           <p id="cmpConfidenceB" class="muted"></p>
           <p id="cmpConclusionB" class="muted"></p>
@@ -952,6 +1035,65 @@
       return `${confidenceLabel(v)} (${Number(v).toFixed(2)})`;
     }
 
+    function isFiniteNumber(v) {
+      const n = Number(v);
+      return Number.isFinite(n);
+    }
+
+    function formatCompactNumber(v) {
+      if (!isFiniteNumber(v)) return "N/A";
+      const n = Number(v);
+      const abs = Math.abs(n);
+      const sign = n < 0 ? "-" : "";
+      const units = [
+        { v: 1e12, s: "T" },
+        { v: 1e9, s: "B" },
+        { v: 1e6, s: "M" },
+        { v: 1e3, s: "K" }
+      ];
+      for (const u of units) {
+        if (abs >= u.v) return `${sign}$${(abs / u.v).toFixed(2)}${u.s}`;
+      }
+      return `${sign}$${abs.toFixed(2)}`;
+    }
+
+    function formatMoney(v) {
+      if (!isFiniteNumber(v)) return "N/A";
+      const n = Number(v);
+      return `$${n.toFixed(2)}`;
+    }
+
+    function formatRatio(v, decimals = 2) {
+      if (!isFiniteNumber(v)) return "N/A";
+      const n = Number(v);
+      return n.toFixed(decimals);
+    }
+
+    function formatYield(v) {
+      if (!isFiniteNumber(v)) return "N/A";
+      const n = Number(v);
+      // yfinance dividendYield is usually decimal (0.012). Convert to percent.
+      if (Math.abs(n) <= 1) return `${(n * 100).toFixed(2)}%`;
+      return `${n.toFixed(2)}%`;
+    }
+
+    function renderFundamentalMetrics(prefix, metrics) {
+      const m = metrics || {};
+      const setText = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      };
+
+      setText(`currentPrice${prefix}`, formatMoney(m.current_price));
+      setText(`high52w${prefix}`, formatMoney(m.fifty_two_week_high));
+      setText(`low52w${prefix}`, formatMoney(m.fifty_two_week_low));
+      setText(`marketCap${prefix}`, formatCompactNumber(m.market_cap));
+      setText(`peRatio${prefix}`, formatRatio(m.pe_ratio));
+      setText(`pbRatio${prefix}`, formatRatio(m.pb_ratio));
+      setText(`dividendYield${prefix}`, formatYield(m.dividend_yield));
+      setText(`ebitda${prefix}`, formatCompactNumber(m.ebitda));
+    }
+
     function populateTickerSelect(selectEl, options, placeholder) {
       selectEl.innerHTML = "";
       const first = document.createElement("option");
@@ -1151,6 +1293,7 @@
           body: JSON.stringify(payload)
         });
         const reqChartA = fetch(`/chart/${encodeURIComponent(input)}?period=6mo&interval=1d`);
+        const reqFundA = fetch(`/fundamentals/${encodeURIComponent(input)}`).catch(() => null);
         const reqB = compareMode
           ? fetch("/api/insights", {
               method: "POST",
@@ -1161,12 +1304,17 @@
         const reqChartB = compareMode
           ? fetch(`/chart/${encodeURIComponent(compareInput)}?period=6mo&interval=1d`)
           : null;
+        const reqFundB = compareMode
+          ? fetch(`/fundamentals/${encodeURIComponent(compareInput)}`).catch(() => null)
+          : Promise.resolve(null);
 
-        const [resp, chartRespA, respCompare, chartRespB] = await Promise.all([
+        const [resp, chartRespA, respCompare, chartRespB, fundRespA, fundRespB] = await Promise.all([
           reqA,
           reqChartA,
           reqB,
-          reqChartB
+          reqChartB,
+          reqFundA,
+          reqFundB
         ]);
         const data = await resp.json();
         if (!resp.ok) throw new Error(apiErrorMessage(data, "Request failed."));
@@ -1187,6 +1335,15 @@
           chartDataB = await chartRespB.json();
         }
 
+        let fundDataA = null;
+        let fundDataB = null;
+        if (fundRespA?.ok) {
+          fundDataA = await fundRespA.json();
+        }
+        if (fundRespB?.ok) {
+          fundDataB = await fundRespB.json();
+        }
+
         const finalLabel = data.final?.label || "";
       document.getElementById("cmpTitleA").textContent = input;
       document.getElementById("finalScore").textContent =
@@ -1195,6 +1352,9 @@
           data.fundamentals?.score == null ? "N/A" : data.fundamentals.score.toFixed(3);
         document.getElementById("sentScore").textContent =
           data.sentiment?.score == null ? "N/A" : data.sentiment.score.toFixed(3);
+
+        // Metrics box (52W high/low, current price, plus a few extra fundamentals).
+        renderFundamentalMetrics("A", fundDataA?.metrics || null);
 
         const f = data.resolved?.fundamentals || {};
         const s = data.resolved?.sentiment || {};
@@ -1229,6 +1389,7 @@
           resultsGrid.classList.add("compare-on");
           renderCompareCard("B", compareInput, dataCompare);
           setSourceBadges("B", dataCompare);
+          renderFundamentalMetrics("B", fundDataB?.metrics || null);
           animateCard("compareResults");
           chartB = renderPriceChart(
             "priceChartB",
