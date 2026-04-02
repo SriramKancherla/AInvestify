@@ -1,6 +1,10 @@
 # --- Build React SPA (dist/ is gitignored; image must include a real Vite build) ---
 FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend-2
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 COPY frontend-2/package.json frontend-2/package-lock.json ./
 RUN npm ci
 COPY frontend-2/ ./
