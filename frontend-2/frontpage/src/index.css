@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+@layer base {
+  :root {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 92%;
+
+    --card: 222 40% 8%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 222 40% 8%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 210 100% 56%;
+    --primary-foreground: 222 47% 5%;
+
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 222 30% 12%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 160 100% 64%;
+    --accent-foreground: 222 47% 5%;
+
+    --destructive: 0 72% 65%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 222 30% 16%;
+    --input: 222 30% 16%;
+    --ring: 210 100% 56%;
+
+    --radius: 0.5rem;
+
+    --stock-green: 150 100% 64%;
+    --stock-red: 0 100% 65%;
+    --glow-green: 150 100% 64%;
+    --glow-red: 0 100% 65%;
+    --grid-line: 222 30% 15%;
+    --surface-glass: 222 40% 8%;
+
+    --sidebar-background: 222 40% 6%;
+    --sidebar-foreground: 210 40% 92%;
+    --sidebar-primary: 210 100% 56%;
+    --sidebar-primary-foreground: 222 47% 5%;
+    --sidebar-accent: 222 30% 14%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 222 30% 16%;
+    --sidebar-ring: 210 100% 56%;
+
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .text-gradient-brand {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  }
+
+  .glass-surface {
+    background: hsl(var(--surface-glass) / 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .grid-overlay {
+    background-image:
+      linear-gradient(hsl(var(--grid-line) / 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid-line) / 0.3) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+}

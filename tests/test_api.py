@@ -11,6 +11,12 @@ def _make_client(monkeypatch) -> TestClient:
     return TestClient(app_module.app, base_url="http://localhost")
 
 
+def _auth_headers() -> dict[str, str]:
+    # Minimal unsigned JWT-like token. Backend only parses claims in Phase 1.
+    token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjo0MTAyNDQ0ODAwfQ."
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_insights_success_shape(monkeypatch) -> None:
     client = _make_client(monkeypatch)
 
@@ -99,22 +105,46 @@ def test_chatbot_local_fallback_on_quota_is_returned(monkeypatch) -> None:
 def test_rate_limit_429_on_insights(monkeypatch) -> None:
     client = _make_client(monkeypatch)
     app_module._RATE_LIMIT_BUCKETS.clear()
+    app_module._INSIGHTS_RESP_CACHE.clear()
+    app_module._INSIGHTS_INFLIGHT.clear()
 
     monkeypatch.setenv("RATE_LIMIT_INSIGHTS_COUNT", "1")
     monkeypatch.setenv("RATE_LIMIT_INSIGHTS_WINDOW_SECONDS", "60")
     monkeypatch.setattr(
         app_module,
         "compute_insights",
-        lambda *args, **kwargs: {"input": "AAPL", "final": {"score": 0.5, "label": "Mixed / Uncertain"}},
+        lambda *args, **kwargs: {
+            "input": (args[0] if args else kwargs.get("input_value", "")),
+            "final": {"score": 0.5, "label": "Mixed / Uncertain"},
+        },
     )
 
     first = client.post("/api/insights", json={"input": "AAPL"})
-    second = client.post("/api/insights", json={"input": "AAPL"})
+    # Same ticker again is served from cache and does not consume another rate-limit slot.
+    cached_repeat = client.post("/api/insights", json={"input": "AAPL"})
+    second = client.post("/api/insights", json={"input": "MSFT"})
 
     assert first.status_code == 200
+    assert cached_repeat.status_code == 200
     assert second.status_code == 429
     detail = second.json()["detail"]["error"]
     assert detail["code"] == "rate_limited"
+
+
+def test_protected_route_requires_auth(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    resp = client.get("/api/portfolio")
+    assert resp.status_code == 401
+    body = resp.json()
+    assert body["detail"]["error"]["code"] == "unauthorized"
+
+
+def test_protected_route_with_auth_header(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    monkeypatch.setattr(app_module, "list_portfolio", lambda _uid: {"holdings": [], "summary": {}})
+    resp = client.get("/api/portfolio", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert "holdings" in resp.json()
 
 
 def test_startup_readiness_failure(monkeypatch) -> None:

@@ -1,4 +1,6 @@
 .venv
+frontend-2/node_modules
+frontend-2/dist
 __pycache__
 *.pyc
 *.pyo

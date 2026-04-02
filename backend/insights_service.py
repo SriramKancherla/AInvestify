@@ -14,6 +14,8 @@ import yfinance as yf
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from Model_gens.webscrapernews import scrape_google_news_rss
+from backend.chat_style_service import rewrite_chat_reply
+from backend.shared_utils import cached_call, request_with_retry
 from stock_insights import DATA_DIR, MODEL_DIR, get_insights
 
 
@@ -36,17 +38,7 @@ def _env_int(key: str, default: int) -> int:
 def _request_with_retry(method: str, url: str, *, json: dict | None = None, timeout: int = 12):
     retries = max(0, _env_int("HTTP_RETRY_COUNT", 2))
     backoff_ms = max(0, _env_int("HTTP_RETRY_BACKOFF_MS", 300))
-    last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            return requests.request(method=method, url=url, json=json, timeout=timeout)
-        except Exception as e:
-            last_error = e
-            if attempt < retries and backoff_ms > 0:
-                time.sleep((backoff_ms / 1000.0) * (attempt + 1))
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("request_failed_unknown")
+    return request_with_retry(method, url, json=json, timeout=timeout, retries=retries, backoff_ms=backoff_ms)
 
 
 def _load_sentiment_assets() -> dict:
@@ -153,14 +145,49 @@ def compute_insights(
 
     Kept separate so the FastAPI layer stays small.
     """
-    return get_insights(
-        input_value,
-        train_missing=train_missing,
-        top_items=top_items,
-        sentiment_weight=sentiment_weight,
-        news_source=news_source,
-        max_news=max_news,
+    cache_key = f"insights:{input_value}:{train_missing}:{top_items}:{sentiment_weight}:{news_source}:{max_news}"
+    ttl_seconds = max(5, _env_int("INSIGHTS_CACHE_TTL_SECONDS", 45))
+    return cached_call(
+        cache_key,
+        ttl_seconds,
+        lambda: get_insights(
+            input_value,
+            train_missing=train_missing,
+            top_items=top_items,
+            sentiment_weight=sentiment_weight,
+            news_source=news_source,
+            max_news=max_news,
+        ),
     )
+
+
+def build_explainability(insights: dict) -> dict:
+    final_score = insights.get("final", {}).get("score")
+    f_score = insights.get("fundamentals", {}).get("score")
+    s_score = insights.get("sentiment", {}).get("score")
+    sentiment_weight = float(insights.get("meta", {}).get("sentiment_weight", 0.3) or 0.3)
+    fundamentals_weight = 1.0 - sentiment_weight
+    drivers = [
+        {
+            "name": "Fundamentals Model",
+            "score": f_score,
+            "weight": round(fundamentals_weight, 3),
+            "contribution": None if f_score is None else round(float(f_score) * fundamentals_weight, 4),
+        },
+        {
+            "name": "News Sentiment Model",
+            "score": s_score,
+            "weight": round(sentiment_weight, 3),
+            "contribution": None if s_score is None else round(float(s_score) * sentiment_weight, 4),
+        },
+    ]
+    confidence = insights.get("final", {}).get("confidence")
+    return {
+        "final_score": final_score,
+        "confidence": confidence,
+        "drivers": drivers,
+        "summary": "Final score is a weighted blend of fundamentals and sentiment signals.",
+    }
 
 
 def get_ticker_options() -> dict:
@@ -205,21 +232,47 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
         error = str(e)
         ds = pd.read_csv(DATA_DIR / "stock_yfinance_data.csv")
         sub = ds.loc[ds["Stock Name"].astype(str).str.upper() == ticker_up].copy()
-        if sub.empty:
-            raise ValueError(f"No chart data found for ticker '{ticker_up}'.")
-        sub["Date"] = pd.to_datetime(sub["Date"], errors="coerce")
-        sub = sub.dropna(subset=["Date"]).sort_values("Date")
-        for _, row in sub.iterrows():
-            chart_points.append(
-                {
-                    "date": row["Date"].strftime("%Y-%m-%d"),
-                    "open": float(row["Open"]),
-                    "high": float(row["High"]),
-                    "low": float(row["Low"]),
-                    "close": float(row["Close"]),
-                    "volume": int(row["Volume"]),
-                }
-            )
+        if not sub.empty:
+            sub["Date"] = pd.to_datetime(sub["Date"], errors="coerce")
+            sub = sub.dropna(subset=["Date"]).sort_values("Date")
+            for _, row in sub.iterrows():
+                chart_points.append(
+                    {
+                        "date": row["Date"].strftime("%Y-%m-%d"),
+                        "open": float(row["Open"]),
+                        "high": float(row["High"]),
+                        "low": float(row["Low"]),
+                        "close": float(row["Close"]),
+                        "volume": int(row["Volume"]),
+                    }
+                )
+        else:
+            # Last-resort synthetic fallback for symbols with no yfinance/dataset history.
+            # Keeps UI usable for delisted or sparse symbols from fundamentals universe.
+            fin = pd.read_csv(DATA_DIR / "financials_cleaned.csv")
+            fin_row = fin.loc[fin["Symbol"].astype(str).str.upper() == ticker_up]
+            if fin_row.empty:
+                raise ValueError(f"No chart data found for ticker '{ticker_up}'.")
+            base_price_raw = fin_row.iloc[0].get("Price")
+            try:
+                base_price = float(base_price_raw)
+            except Exception:
+                raise ValueError(f"No chart data found for ticker '{ticker_up}'.")
+
+            source = "fallback_synthetic_from_fundamentals"
+            today = pd.Timestamp.utcnow().normalize()
+            for i in range(30):
+                d = (today - pd.Timedelta(days=(29 - i))).strftime("%Y-%m-%d")
+                chart_points.append(
+                    {
+                        "date": d,
+                        "open": base_price,
+                        "high": base_price,
+                        "low": base_price,
+                        "close": base_price,
+                        "volume": 0,
+                    }
+                )
 
     return {
         "ticker": ticker_up,
@@ -250,6 +303,29 @@ def get_fundamentals_data(ticker: str) -> dict:
     except Exception as e:
         info_error = str(e)
 
+    # Dataset fallback to avoid empty fundamentals when live provider misses fields.
+    dataset_row = None
+    try:
+        df = pd.read_csv(DATA_DIR / "financials_cleaned.csv")
+        mask = df["Symbol"].astype(str).str.upper().str.strip() == ticker.upper()
+        if mask.any():
+            dataset_row = df.loc[mask].iloc[0]
+    except Exception:
+        dataset_row = None
+
+    def _pick(primary, dataset_key: str):
+        if primary is not None:
+            return primary
+        if dataset_row is None:
+            return None
+        try:
+            v = dataset_row.get(dataset_key)
+            if pd.isna(v):
+                return None
+            return float(v)
+        except Exception:
+            return None
+
     return {
         "ticker": ticker.upper(),
         "fundamentals_score": insights["fundamentals"]["score"],
@@ -257,16 +333,16 @@ def get_fundamentals_data(ticker: str) -> dict:
         "fundamentals_meta": insights["fundamentals"].get("meta"),
         "model_scores": insights["fundamentals"]["model_scores"],
         "metrics": {
-            "market_cap": info.get("marketCap"),
-            "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
-            "pe_ratio": info.get("trailingPE"),
-            "pb_ratio": info.get("priceToBook"),
-            "price_to_sales": info.get("priceToSalesTrailing12Months"),
-            "book_value": info.get("bookValue"),
-            "ebitda": info.get("ebitda"),
-            "dividend_yield": info.get("dividendYield"),
-            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "market_cap": _pick(info.get("marketCap"), "Market_Cap"),
+            "current_price": _pick(info.get("currentPrice") or info.get("regularMarketPrice"), "Price"),
+            "pe_ratio": _pick(info.get("trailingPE"), "Price/Earnings"),
+            "pb_ratio": _pick(info.get("priceToBook"), "Price/Book"),
+            "price_to_sales": _pick(info.get("priceToSalesTrailing12Months"), "Price/Sales"),
+            "book_value": _pick(info.get("bookValue"), "Book_Value"),
+            "ebitda": _pick(info.get("ebitda"), "EBITDA"),
+            "dividend_yield": _pick(info.get("dividendYield"), "Dividend_Yield"),
+            "fifty_two_week_high": _pick(info.get("fiftyTwoWeekHigh"), "52w_high"),
+            "fifty_two_week_low": _pick(info.get("fiftyTwoWeekLow"), "52w_low"),
         },
         "metrics_source_error": info_error,
     }
@@ -328,10 +404,15 @@ def get_news_data(stock_name: str, max_articles: int = 10) -> dict:
         out_articles.append(
             {
                 "headline": title,
+                "link": item.get("link"),
                 "sentiment_label": label,
                 "sentiment_score": round(combined, 4),
                 "lr_score": round(lr_score, 4),
                 "vader_compound": round(vader_compound, 4),
+                "quality": {
+                    "credibility_score": round(0.55 + (0.35 if "reuters" in title.lower() or "bloomberg" in title.lower() else 0.0), 3),
+                    "impact_tag": "high" if abs(vader_compound) > 0.55 else "medium" if abs(vader_compound) > 0.25 else "low",
+                },
             }
         )
 
@@ -426,19 +507,40 @@ def get_chatbot_reply(message: str, selected_symbol: str | None = None) -> dict:
     wants_sent = any(k in q for k in ["sentiment", "news", "bullish", "bearish", "headlines"])
     wants_compare = any(k in q for k in ["compare", "versus", "vs"])
 
+    def _finalize(payload: dict, raw_reply: str, *, provider: str, fallback_reason: str | None = None) -> dict:
+        rewritten, rewrite_provider = rewrite_chat_reply(
+            user_message=text,
+            base_reply=raw_reply,
+            context_symbol=payload.get("context_symbol"),
+        )
+        payload["reply"] = rewritten
+        payload["provider"] = provider
+        payload["style_rewrite_provider"] = rewrite_provider
+        if fallback_reason:
+            payload["fallback_reason"] = fallback_reason
+        return payload
+
     if wants_compare:
-        return {
-            "reply": "Use Compare mode in the UI, pick two stocks, then ask me to interpret the difference in fundamentals and sentiment.",
+        base = {
             "context_symbol": symbol,
             "context_symbol_source": symbol_source,
         }
+        return _finalize(
+            base,
+            "Use Compare mode in the UI, pick two stocks, then ask me to interpret the difference in fundamentals and sentiment.",
+            provider="local",
+        )
 
     if symbol is None:
-        return {
-            "reply": "Tell me a ticker symbol (for example: TSLA or AAPL), or select one in the dropdown first.",
+        base = {
             "context_symbol": None,
             "context_symbol_source": symbol_source,
         }
+        return _finalize(
+            base,
+            "Tell me a ticker symbol (for example: TSLA or AAPL), or select one in the dropdown first.",
+            provider="local",
+        )
 
     try:
         insights = compute_insights(
@@ -455,12 +557,11 @@ def get_chatbot_reply(message: str, selected_symbol: str | None = None) -> dict:
     # Prefer Gemini if key exists; fallback to deterministic response if unavailable.
     ai_reply, gemini_error = _gemini_reply_with_context(text, symbol, insights)
     if ai_reply:
-        return {
-            "reply": ai_reply,
+        base = {
             "context_symbol": symbol,
             "context_symbol_source": symbol_source,
-            "provider": "gemini",
         }
+        return _finalize(base, ai_reply, provider="gemini")
 
     final_score = insights["final"]["score"]
     final_label = insights["final"]["label"]
@@ -472,13 +573,11 @@ def get_chatbot_reply(message: str, selected_symbol: str | None = None) -> dict:
             reply = f"For {symbol}, fundamentals are currently unavailable."
         else:
             reply = f"For {symbol}, fundamentals score is {fund:.3f}, which supports a {('strong' if fund >= 0.65 else 'moderate' if fund >= 0.45 else 'weak')} fundamentals view."
-        return {
-            "reply": reply,
+        base = {
             "context_symbol": symbol,
             "context_symbol_source": symbol_source,
-            "provider": "local",
-            "fallback_reason": gemini_error,
         }
+        return _finalize(base, reply, provider="local", fallback_reason=gemini_error)
 
     if wants_sent:
         if sent is None:
@@ -486,13 +585,11 @@ def get_chatbot_reply(message: str, selected_symbol: str | None = None) -> dict:
         else:
             tone = "bullish" if sent >= 0.6 else "neutral" if sent >= 0.4 else "bearish"
             reply = f"For {symbol}, sentiment score is {sent:.3f} ({tone})."
-        return {
-            "reply": reply,
+        base = {
             "context_symbol": symbol,
             "context_symbol_source": symbol_source,
-            "provider": "local",
-            "fallback_reason": gemini_error,
         }
+        return _finalize(base, reply, provider="local", fallback_reason=gemini_error)
 
     if wants_summary or True:
         fund_text = "N/A" if fund is None else f"{fund:.3f}"
@@ -502,11 +599,9 @@ def get_chatbot_reply(message: str, selected_symbol: str | None = None) -> dict:
             f"fundamentals {fund_text}, sentiment {sent_text}. "
             "Use Compare mode to check this against another stock."
         )
-        return {
-            "reply": reply,
+        base = {
             "context_symbol": symbol,
             "context_symbol_source": symbol_source,
-            "provider": "local",
-            "fallback_reason": gemini_error,
         }
+        return _finalize(base, reply, provider="local", fallback_reason=gemini_error)
 

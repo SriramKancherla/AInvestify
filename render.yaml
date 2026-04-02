@@ -6,6 +6,14 @@ services:
     autoDeploy: true
     healthCheckPath: /health
     envVars:
+      # Required in production: default TrustedHostMiddleware only allows "localhost" without this.
+      - key: ALLOWED_HOSTS
+        value: "*.onrender.com,localhost,127.0.0.1"
+      - key: FRONTEND_DIR
+        value: frontend-2
+      # Optional: set to your exact site URL(s) if you add a separate API domain or custom domain.
+      # - key: CORS_ALLOW_ORIGINS
+      #   value: "https://YOUR-SERVICE.onrender.com"
       - key: APP_ENV
         value: production
       - key: ENABLE_PROXY_HEADERS
@@ -13,7 +21,7 @@ services:
       - key: CORS_ALLOW_CREDENTIALS
         value: "true"
       - key: CORS_ALLOW_METHODS
-        value: GET,POST,OPTIONS
+        value: GET,POST,PUT,DELETE,OPTIONS
       - key: CORS_ALLOW_HEADERS
         value: Content-Type,Authorization
       - key: RATE_LIMIT_INSIGHTS_COUNT
@@ -30,3 +38,22 @@ services:
         value: "300"
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
+      # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
+      # - key: SUPABASE_URL
+      #   sync: false
+      # - key: SUPABASE_SERVICE_ROLE_KEY
+      #   sync: false
+      # - key: SUPABASE_ANON_KEY
+      #   sync: false
+      # Optional if issuer differs from {SUPABASE_URL}/auth/v1
+      # - key: SUPABASE_JWT_ISSUER
+      #   value: https://YOUR_PROJECT.supabase.co/auth/v1
+      # --- WhatsApp alerts (pick one provider) ---
+      # Twilio:
+      # - key: TWILIO_ACCOUNT_SID
+      # - key: TWILIO_AUTH_TOKEN
+      # - key: TWILIO_WHATSAPP_FROM
+      #   value: "+14155238886"
+      # Meta Cloud API:
+      # - key: WHATSAPP_CLOUD_TOKEN
+      # - key: WHATSAPP_PHONE_NUMBER_ID

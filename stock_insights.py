@@ -3,6 +3,7 @@ import csv
 import os
 import subprocess
 import sys
+import warnings
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -10,6 +11,14 @@ import joblib
 import numpy as np
 import pandas as pd
 
+# Downgrade sklearn noise: estimators were fit on named DataFrames, but some code paths
+# (and sklearn internals on certain versions) still pass ndarray and trigger this warning.
+warnings.filterwarnings(
+    "ignore",
+    message=r"X does not have valid feature names, but .* was fitted with feature names",
+    category=UserWarning,
+    module=r"sklearn\.utils\.validation",
+)
 
 REPO_ROOT = Path(__file__).resolve().parent
 MODEL_DIR = REPO_ROOT / "Model_gens"
@@ -299,11 +308,16 @@ def _load_models():
 
 
 def _predict_fundamentals(models: dict, financials_row: pd.Series) -> dict:
-    X = financials_row[FEATURE_COLS].astype(float).values.reshape(1, -1)
+    # Models were saved from pipelines trained on named DataFrame columns; pass a DataFrame
+    # so sklearn does not emit "X does not have valid feature names" on every request.
+    X_df = pd.DataFrame(
+        [financials_row[FEATURE_COLS].astype(float).to_numpy()],
+        columns=FEATURE_COLS,
+    )
 
     # Classifier: output probability for class 1.
     clf = models["fundamentals_clf"]
-    proba = clf.predict_proba(X)[0]
+    proba = clf.predict_proba(X_df)[0]
     if 1 in clf.classes_:
         pos_idx = list(clf.classes_).index(1)
     else:
@@ -312,11 +326,11 @@ def _predict_fundamentals(models: dict, financials_row: pd.Series) -> dict:
     clf_score = float(proba[pos_idx])
 
     # Regressors: already trained on a [0,1] style "fundamental_score".
-    rfr_score = float(models["fundamentals_rfr"].predict(X)[0])
-    xgb_score = float(models["fundamentals_xgb"].predict(X)[0])
+    rfr_score = float(models["fundamentals_rfr"].predict(X_df)[0])
+    xgb_score = float(models["fundamentals_xgb"].predict(X_df)[0])
 
     # Keras NN: works on scaled X; Y_scaled is inverted back to [0,1].
-    X_scaled = models["keras_X_scaler"].transform(X)
+    X_scaled = models["keras_X_scaler"].transform(X_df)
     y_scaled_pred = float(models["keras_model"].predict(X_scaled, verbose=0)[0][0])
     y_pred = float(models["keras_Y_scaler"].inverse_transform(np.array([[y_scaled_pred]]))[0][0])
 
