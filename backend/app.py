@@ -752,7 +752,11 @@ def _smtp_deliver(sender: str, password: str, msg: EmailMessage) -> None:
         raise _std_error(502, "email_send_failed", "Could not send email. Try again in a moment.") from e
     except OSError as e:
         logging.warning("SMTP network error: %s", e)
-        raise _std_error(502, "email_send_failed", "Could not reach mail server. Check network and try again.") from e
+        raise _std_error(
+            502,
+            "email_send_failed",
+            f"Could not reach mail server at {host}:{port}. Check network and try again.",
+        ) from e
 
 
 def _email_otp_send(email: str, otp: str) -> None:

@@ -38,6 +38,12 @@ services:
         value: "300"
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
+      # --- Email OTP SMTP (used by /api/auth/*-otp/send) ---
+      # Note: if port 587 fails due to STARTTLS/network issues, port 465 (SSL) is usually more reliable.
+      - key: EMAIL_SMTP_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_SMTP_PORT
+        value: "465"
       # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
       # - key: SUPABASE_URL
       #   sync: false
