@@ -44,6 +44,9 @@ services:
         value: smtp.gmail.com
       - key: EMAIL_SMTP_PORT
         value: "465"
+      # Avoid IPv6 SMTP "Network is unreachable" on some hosts (default true in code; set explicitly here).
+      - key: EMAIL_SMTP_FORCE_IPV4
+        value: "true"
       # Required for OTP + price-alert emails (Gmail: use an App Password, not your normal password).
       # - key: EMAIL_USER
       #   sync: false

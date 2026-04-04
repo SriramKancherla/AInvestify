@@ -40,6 +40,7 @@ from backend.feature_services import (
     sync_pull,
     sync_push,
 )
+from backend.notify import smtp_deliver_message
 from backend.supabase_jwt import verify_access_token
 from backend.user_data import (
     add_portfolio_holding,
@@ -750,16 +751,7 @@ def _smtp_deliver(sender: str, password: str, msg: EmailMessage) -> None:
             len(password),
         )
     try:
-        if port == 465:
-            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
-                smtp.login(sender, password)
-                smtp.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port, timeout=20) as smtp:
-                if port == 587:
-                    smtp.starttls()
-                smtp.login(sender, password)
-                smtp.send_message(msg)
+        smtp_deliver_message(sender, password, msg, timeout=20)
     except smtplib.SMTPAuthenticationError as e:
         logging.warning("SMTP auth failed for %s: %s", sender, e)
         raise _std_error(

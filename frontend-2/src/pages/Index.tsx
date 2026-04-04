@@ -314,13 +314,27 @@ export default function Index() {
                         threshold: thresholdNum,
                       });
                       const n = res?.evaluate?.triggered_count ?? 0;
-                      const first = res?.evaluate?.triggered?.[0];
+                      const first = res?.evaluate?.triggered?.[0] as
+                        | {
+                            delivered?: { email?: boolean };
+                            email_delivery_error?: string | null;
+                          }
+                        | undefined;
                       const emailOk = first?.delivered?.email;
+                      const emailErr = first?.email_delivery_error;
                       if (n > 0) {
                         const parts: string[] = [
                           "The price already satisfies your rule. We emailed you (if the server can send mail) and removed this rule — it will not fire again.",
                         ];
-                        parts.push(emailOk ? "Email: sent (check inbox/spam)." : "Email: not sent — check server EMAIL_USER/EMAIL_PASS and that your JWT includes an email.");
+                        if (emailOk) {
+                          parts.push("Email: sent (check inbox/spam).");
+                        } else if (emailErr) {
+                          parts.push(`Email: not sent — ${emailErr}`);
+                        } else {
+                          parts.push(
+                            "Email: not sent — check server EMAIL_USER/EMAIL_PASS and that your JWT includes an email.",
+                          );
+                        }
                         window.alert(parts.join("\n"));
                       } else {
                         window.alert(

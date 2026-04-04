@@ -220,8 +220,14 @@ def _mem_evaluate(user_id: str, user_email: str | None, only_alert_id: str | Non
         if not hit:
             continue
         delivered_email = False
-        if a.get("channel_email") and user_email:
-            delivered_email = send_price_alert_email(user_email, str(a["ticker"]), price, str(a["rule_type"]), float(a["threshold"]))
+        email_delivery_error: str | None = None
+        if a.get("channel_email"):
+            if user_email:
+                delivered_email, email_delivery_error = send_price_alert_email(
+                    user_email, str(a["ticker"]), price, str(a["rule_type"]), float(a["threshold"])
+                )
+            else:
+                email_delivery_error = "no_recipient_email_in_session"
         _mem_delete_alert(user_id, aid)
         triggered.append(
             {
@@ -231,6 +237,7 @@ def _mem_evaluate(user_id: str, user_email: str | None, only_alert_id: str | Non
                 "rule_type": str(a["rule_type"]),
                 "threshold": float(a["threshold"]),
                 "delivered": {"email": delivered_email, "whatsapp": False},
+                "email_delivery_error": email_delivery_error,
                 "rule_deleted": True,
                 "evaluated_at": _now_iso(),
             }
@@ -381,8 +388,14 @@ def _sb_evaluate(user_id: str, user_email: str | None, only_alert_id: str | None
             continue
         delivered_email = False
         delivered_whatsapp = False
-        if raw.get("channel_email") and user_email:
-            delivered_email = send_price_alert_email(user_email, str(raw["ticker"]), price, str(raw["rule_type"]), float(raw["threshold"]))
+        email_delivery_error: str | None = None
+        if raw.get("channel_email"):
+            if user_email:
+                delivered_email, email_delivery_error = send_price_alert_email(
+                    user_email, str(raw["ticker"]), price, str(raw["rule_type"]), float(raw["threshold"])
+                )
+            else:
+                email_delivery_error = "no_recipient_email_in_session"
         _sb_delete_alert(user_id, aid)
         triggered.append(
             {
@@ -392,6 +405,7 @@ def _sb_evaluate(user_id: str, user_email: str | None, only_alert_id: str | None
                 "rule_type": str(raw["rule_type"]),
                 "threshold": float(raw["threshold"]),
                 "delivered": {"email": delivered_email, "whatsapp": delivered_whatsapp},
+                "email_delivery_error": email_delivery_error,
                 "rule_deleted": True,
                 "evaluated_at": _now_iso(),
             }
