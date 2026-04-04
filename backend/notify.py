@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import html
 import logging
 import os
@@ -7,7 +8,10 @@ import smtplib
 import socket
 import ssl
 from email.message import EmailMessage
+from email.utils import getaddresses
 from typing import Any
+
+import requests
 
 _LOG = logging.getLogger("ainvestify.notify")
 
@@ -29,9 +33,108 @@ def _env_flag(key: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _resend_api_key() -> str:
+    return (os.getenv("RESEND_API_KEY") or "").strip()
+
+
+def outbound_email_configured() -> bool:
+    """True if we can send mail via Resend HTTPS or classic SMTP credentials."""
+    if _resend_api_key():
+        return True
+    u = (os.getenv("EMAIL_USER") or "").strip()
+    p = (os.getenv("EMAIL_PASS") or "").strip()
+    return bool(u and p)
+
+
+def _resend_from_address(fallback_sender: str) -> str:
+    return (os.getenv("RESEND_FROM_EMAIL") or fallback_sender or "onboarding@resend.dev").strip()
+
+
 def _smtp_force_ipv4() -> bool:
-    """Many hosts (e.g. some cloud runtimes) fail IPv6 SMTP with errno 101; IPv4 works."""
-    return _env_flag("EMAIL_SMTP_FORCE_IPV4", True)
+    """Opt-in: some networks break IPv6 SMTP; Render free tier blocks SMTP entirely (use Resend)."""
+    return _env_flag("EMAIL_SMTP_FORCE_IPV4", False)
+
+
+def send_via_resend(
+    *,
+    to_addrs: list[str],
+    subject: str,
+    text: str,
+    html_body: str | None = None,
+    from_addr: str | None = None,
+    attachments: list[tuple[str, bytes]] | None = None,
+) -> None:
+    """Send via Resend HTTPS API (works on hosts that block outbound SMTP, e.g. Render free web services)."""
+    api_key = _resend_api_key()
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY is not set.")
+    if not to_addrs:
+        raise ValueError("No recipients.")
+    from_email = _resend_from_address(from_addr or "")
+    body: dict[str, Any] = {
+        "from": from_email,
+        "to": to_addrs[:50],
+        "subject": subject,
+    }
+    if html_body:
+        body["html"] = html_body
+    if text:
+        body["text"] = text
+    elif html_body:
+        body["text"] = "HTML email — use an HTML-capable client."
+    if attachments:
+        body["attachments"] = [
+            {"filename": fn, "content": base64.b64encode(raw).decode("ascii")} for fn, raw in attachments
+        ]
+    r = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=body,
+        timeout=30,
+    )
+    if r.status_code >= 400:
+        _LOG.warning("Resend API error: %s %s", r.status_code, r.text[:500])
+        raise RuntimeError(f"Resend HTTP {r.status_code}: {r.text[:220]}")
+
+
+def _extract_from_email_message(msg: EmailMessage) -> tuple[list[str], str, str, str, list[tuple[str, bytes]]]:
+    to_header = msg.get("To", "") or ""
+    recipients = [a for _, a in getaddresses([to_header]) if a]
+    subject = msg.get("Subject", "") or ""
+    text_body = ""
+    html_body = ""
+    attachments: list[tuple[str, bytes]] = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+            cdisp = str(part.get("Content-Disposition") or "")
+            if "attachment" in cdisp.lower():
+                fn = part.get_filename() or "attachment.bin"
+                raw = part.get_payload(decode=True)
+                if isinstance(raw, bytes):
+                    attachments.append((fn, raw))
+            else:
+                ctype = part.get_content_type()
+                if ctype == "text/plain" and not text_body:
+                    payload = part.get_payload(decode=True)
+                    text_body = (
+                        payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else (part.get_content() or "")
+                    )
+                elif ctype == "text/html" and not html_body:
+                    payload = part.get_payload(decode=True)
+                    html_body = (
+                        payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else (part.get_content() or "")
+                    )
+    else:
+        ctype = msg.get_content_type()
+        if ctype == "text/plain":
+            text_body = msg.get_content() or ""
+        elif ctype == "text/html":
+            html_body = msg.get_content() or ""
+    if not text_body and not html_body:
+        text_body = "(no body)"
+    return recipients, subject, text_body, html_body, attachments
 
 
 def _socket_connect_ipv4(host: str, port: int, timeout: float) -> socket.socket:
@@ -71,7 +174,21 @@ class _SMTP_SSL_IPV4(smtplib.SMTP_SSL):
 
 
 def smtp_deliver_message(sender: str, password: str, msg: EmailMessage, *, timeout: float = 20) -> None:
-    """Send a prepared message via Gmail-style SMTP (465 SSL or 587 STARTTLS)."""
+    """Send via Resend (if RESEND_API_KEY) or Gmail-style SMTP (465 SSL or 587 STARTTLS)."""
+    if _resend_api_key():
+        recipients, subject, text_body, html_body, attachments = _extract_from_email_message(msg)
+        if not recipients:
+            raise ValueError("Email message has no To: recipients.")
+        send_via_resend(
+            to_addrs=recipients,
+            subject=subject,
+            text=text_body,
+            html_body=html_body or None,
+            from_addr=sender or None,
+            attachments=attachments or None,
+        )
+        return
+
     host = (os.getenv("EMAIL_SMTP_HOST") or "smtp.gmail.com").strip()
     port = _env_int("EMAIL_SMTP_PORT", 587)
     if _smtp_force_ipv4():
@@ -99,6 +216,16 @@ def smtp_deliver_message(sender: str, password: str, msg: EmailMessage, *, timeo
 
 
 def smtp_send_html(sender: str, password: str, to_addr: str, subject: str, html_body: str, text_fallback: str) -> None:
+    if _resend_api_key():
+        send_via_resend(
+            to_addrs=[to_addr],
+            subject=subject,
+            text=text_fallback,
+            html_body=html_body,
+            from_addr=sender or None,
+            attachments=None,
+        )
+        return
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = to_addr
@@ -111,7 +238,10 @@ def smtp_send_html(sender: str, password: str, to_addr: str, subject: str, html_
 def send_price_alert_email(to_email: str, ticker: str, price: float, rule_type: str, threshold: float) -> tuple[bool, str | None]:
     sender = (os.getenv("EMAIL_USER") or "").strip()
     password = (os.getenv("EMAIL_PASS") or "").strip().replace(" ", "")
-    if not sender or not password or not to_email:
+    use_resend = bool(_resend_api_key())
+    if not to_email:
+        return False, "missing_recipient"
+    if not use_resend and (not sender or not password):
         _LOG.warning("Skipping alert email: missing EMAIL_USER/EMAIL_PASS or recipient.")
         return False, "missing_smtp_credentials_or_recipient"
     subj = f"AInvestify - Stock Insights — {ticker.upper()} @ ${price:.2f}"
@@ -132,4 +262,6 @@ def send_price_alert_email(to_email: str, ticker: str, price: float, rule_type: 
     except Exception as e:
         _LOG.warning("Alert email failed: %s", e)
         detail = f"{type(e).__name__}: {e}"
-        return False, detail[:280]
+        if not use_resend and "No IPv4 route" in detail:
+            detail += " (Render free web services block SMTP; set RESEND_API_KEY and RESEND_FROM_EMAIL.)"
+        return False, detail[:400]

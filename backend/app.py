@@ -40,7 +40,7 @@ from backend.feature_services import (
     sync_pull,
     sync_push,
 )
-from backend.notify import smtp_deliver_message
+from backend.notify import outbound_email_configured, smtp_deliver_message
 from backend.supabase_jwt import verify_access_token
 from backend.user_data import (
     add_portfolio_holding,
@@ -778,8 +778,12 @@ def _email_otp_send(email: str, otp: str) -> None:
     sender = (os.getenv("EMAIL_USER") or "").strip()
     # Google App Passwords are often shown with spaces; SMTP accepts the 16-char form without spaces.
     password = (os.getenv("EMAIL_PASS") or "").strip().replace(" ", "")
-    if not sender or not password:
-        raise _std_error(400, "email_not_configured", "EMAIL_USER/EMAIL_PASS are not configured.")
+    if not outbound_email_configured():
+        raise _std_error(
+            400,
+            "email_not_configured",
+            "Set RESEND_API_KEY for email on Render free tier (SMTP ports are blocked), or EMAIL_USER/EMAIL_PASS for SMTP elsewhere.",
+        )
 
     msg = EmailMessage()
     msg["From"] = sender
@@ -1089,8 +1093,12 @@ def report_email(req: ReportEmailRequest, request: Request) -> dict:
     try:
         sender = (os.getenv("EMAIL_USER") or "").strip()
         password = (os.getenv("EMAIL_PASS") or "").strip().replace(" ", "")
-        if not sender or not password:
-            raise _std_error(400, "email_not_configured", "EMAIL_USER/EMAIL_PASS are not configured.")
+        if not outbound_email_configured():
+            raise _std_error(
+                400,
+                "email_not_configured",
+                "Set RESEND_API_KEY for email on Render free tier (SMTP blocked), or EMAIL_USER/EMAIL_PASS for SMTP.",
+            )
         recipients = [r.strip() for r in req.to if isinstance(r, str) and r.strip()]
         if not recipients:
             raise _std_error(400, "email_recipients_required", "At least one recipient email is required.")
