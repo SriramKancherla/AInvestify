@@ -44,6 +44,11 @@ services:
         value: smtp.gmail.com
       - key: EMAIL_SMTP_PORT
         value: "465"
+      # Required for OTP + price-alert emails (Gmail: use an App Password, not your normal password).
+      # - key: EMAIL_USER
+      #   sync: false
+      # - key: EMAIL_PASS
+      #   sync: false
       # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
       # - key: SUPABASE_URL
       #   sync: false

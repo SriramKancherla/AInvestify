@@ -233,6 +233,29 @@ def _require_auth_claims(request: Request) -> dict[str, Any]:
         raise _std_error(401, "unauthorized", str(e) or "Invalid or expired token.") from e
 
 
+def _user_email_from_claims(claims: dict[str, Any]) -> str | None:
+    """Email for alerts / profile; Supabase may put it only in user_metadata or identities."""
+    e = str(claims.get("email") or "").strip()
+    if e:
+        return e
+    meta = claims.get("user_metadata")
+    if isinstance(meta, dict):
+        e = str(meta.get("email") or "").strip()
+        if e:
+            return e
+    identities = claims.get("identities")
+    if isinstance(identities, list):
+        for ident in identities:
+            if not isinstance(ident, dict):
+                continue
+            idata = ident.get("identity_data")
+            if isinstance(idata, dict):
+                e = str(idata.get("email") or "").strip()
+                if e:
+                    return e
+    return None
+
+
 def _require_auth_user(request: Request) -> str:
     claims = _require_auth_claims(request)
     sub = str(claims.get("sub") or "").strip()
@@ -624,7 +647,7 @@ def alerts_add(req: AlertRequest, request: Request) -> dict:
     """
     claims = _require_auth_claims(request)
     uid = str(claims.get("sub") or "").strip()
-    email = str(claims.get("email") or "").strip() or None
+    email = _user_email_from_claims(claims)
     if not uid:
         raise _std_error(401, "unauthorized", "Token subject missing.")
     # Price alerts are email-only; ignore any client-sent channel_whatsapp.
@@ -648,7 +671,7 @@ def alerts_remove(alert_id: str, request: Request) -> dict:
 def alerts_eval(request: Request) -> dict:
     claims = _require_auth_claims(request)
     uid = str(claims.get("sub") or "").strip()
-    email = str(claims.get("email") or "").strip() or None
+    email = _user_email_from_claims(claims)
     if not uid:
         raise _std_error(401, "unauthorized", "Token subject missing.")
     return evaluate_alerts(uid, email)
@@ -660,7 +683,7 @@ def me_notifications(request: Request) -> dict:
     uid = str(claims.get("sub") or "").strip()
     if not uid:
         raise _std_error(401, "unauthorized", "Token subject missing.")
-    email = str(claims.get("email") or "").strip() or None
+    email = _user_email_from_claims(claims)
     # Email-only: WhatsApp/phone notifications are disabled.
     return {"email": email}
 
