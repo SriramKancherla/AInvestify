@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeftRight, BellRing, Download, Mail, Star, X } from "lucide-react";
+import { ArrowLeftRight, Download, Star, X } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import Header from "@/components/dashboard/Header";
 import KPICards from "@/components/dashboard/KPICards";
@@ -9,19 +9,15 @@ import ChatWidget from "@/components/dashboard/ChatWidget";
 import EmptyState from "@/components/dashboard/EmptyState";
 import SiteFooter from "@/components/SiteFooter";
 import { useStockStore } from "@/hooks/useStockStore";
-import { useAuth } from "@/contexts/AuthContext";
 
 export default function Index() {
   const store = useStockStore();
-  const { session } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { symbol: symbolParam } = useParams<{ symbol?: string }>();
   const lastUrlTickerRef = useRef<string>("");
   const [showCompare, setShowCompare] = useState(false);
   const [compareInput, setCompareInput] = useState("");
-  const [alertThreshold, setAlertThreshold] = useState("100");
-  const [alertType, setAlertType] = useState<"price_above" | "price_below">("price_above");
   const [showWatchlistAdd, setShowWatchlistAdd] = useState(false);
   const [selectedWatchlist, setSelectedWatchlist] = useState("default");
   const [newWatchlistName, setNewWatchlistName] = useState("");
@@ -35,12 +31,6 @@ export default function Index() {
   const recentCompareChoices = useMemo(
     () => store.recentStocks.filter((t) => t !== store.selectedTicker).slice(0, 6),
     [store.recentStocks, store.selectedTicker]
-  );
-
-  /** Same symbol as the insights header; read-only for alerts. */
-  const alertPageTicker = useMemo(
-    () => (store.stockData?.ticker || store.selectedTicker || "").trim().toUpperCase(),
-    [store.stockData?.ticker, store.selectedTicker]
   );
 
   const handleSearch = (ticker: string) => {
@@ -63,8 +53,6 @@ export default function Index() {
 
   const isFav = store.favorites.includes(store.selectedTicker);
 
-  const { stockData, evaluateAlertsNow, refreshAlerts } = store;
-
   useEffect(() => {
     const routeSym = (symbolParam || "").trim().toUpperCase();
     if (routeSym) {
@@ -84,23 +72,6 @@ export default function Index() {
     // Intentionally omit `store` — only stable actions are listed to avoid refetch loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbolParam, location.search, store.fetchStock, store.setSelectedTicker]);
-
-  // Re-check all pending one-shot rules when a signed-in user views a stock (no extra button).
-  useEffect(() => {
-    if (!session?.user?.id || !stockData?.ticker) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await evaluateAlertsNow();
-        if (!cancelled) await refreshAlerts();
-      } catch {
-        /* ignore — alerts are optional */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user?.id, stockData?.ticker, evaluateAlertsNow, refreshAlerts]);
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
@@ -272,144 +243,6 @@ export default function Index() {
             )}
 
             <div className="rounded-xl border border-border p-4 space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2"><BellRing className="w-4 h-4" /> Price alerts</h3>
-              <p className="text-xs text-muted-foreground">
-                Use <span className="font-medium text-foreground">Set one-time alert</span> to add one rule for the stock on this page. We use the latest daily close in our feed: if the rule is already satisfied, we email you once at your sign-in address and then remove the rule. If not, it stays pending until a later visit to this app fires it once, then it is deleted.
-              </p>
-              <div className="rounded-lg border border-border bg-secondary/25 p-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Stock for this alert</p>
-                <div
-                  className="flex min-h-[2.75rem] items-center justify-center rounded-md border border-border/80 bg-background px-4 py-2"
-                  role="status"
-                  title="Matches the stock on this insights page; cannot be edited."
-                >
-                  <span className="pointer-events-none select-none text-xl font-bold font-mono tracking-tight text-foreground tabular-nums">
-                    {alertPageTicker || "—"}
-                  </span>
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Notifications go to your account email (the one you signed in with).</p>
-              <div className="flex flex-wrap gap-2 items-center">
-                <select value={alertType} onChange={(e) => setAlertType(e.target.value as "price_above" | "price_below")} className="h-9 px-2 rounded border border-border bg-secondary/50 text-sm">
-                  <option value="price_above">At or above</option>
-                  <option value="price_below">At or below</option>
-                </select>
-                <input value={alertThreshold} onChange={(e) => setAlertThreshold(e.target.value)} placeholder="Threshold" className="w-24 h-9 px-2 rounded border border-border bg-secondary/50 text-sm" />
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      if (!alertPageTicker) {
-                        window.alert("Open a stock first to set an alert.");
-                        return;
-                      }
-                      const thresholdNum = Number(alertThreshold);
-                      if (!Number.isFinite(thresholdNum) || thresholdNum <= 0) {
-                        window.alert("Enter a valid positive threshold price.");
-                        return;
-                      }
-                      const res = await store.createAlertRule({
-                        ticker: alertPageTicker,
-                        rule_type: alertType,
-                        threshold: thresholdNum,
-                      });
-                      const n = res?.evaluate?.triggered_count ?? 0;
-                      const first = res?.evaluate?.triggered?.[0] as
-                        | {
-                            delivered?: { email?: boolean };
-                            email_delivery_error?: string | null;
-                          }
-                        | undefined;
-                      const emailOk = first?.delivered?.email;
-                      const emailErr = first?.email_delivery_error;
-                      if (n > 0) {
-                        const parts: string[] = [
-                          "The price already satisfies your rule. We emailed you (if the server can send mail) and removed this rule — it will not fire again.",
-                        ];
-                        if (emailOk) {
-                          parts.push("Email: sent (check inbox/spam).");
-                        } else if (emailErr) {
-                          parts.push(`Email: not sent — ${emailErr}`);
-                        } else {
-                          parts.push(
-                            "Email: not sent — check server EMAIL_USER/EMAIL_PASS and that your JWT includes an email.",
-                          );
-                        }
-                        window.alert(parts.join("\n"));
-                      } else {
-                        window.alert(
-                          "Rule saved until it fires once. When the latest daily close in our feed meets your condition, we email you and then delete the rule automatically.",
-                        );
-                      }
-                    } catch (e) {
-                      window.alert(e instanceof Error ? e.message : "Could not set alert.");
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded border border-border text-sm font-medium bg-primary text-primary-foreground hover:opacity-90"
-                >
-                  Set one-time alert
-                </button>
-              </div>
-
-              <div className="rounded-lg border border-border/80 bg-secondary/15 p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Pending one-time rules ({store.alerts.length})
-                  </p>
-                  {store.alerts.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-[11px] uppercase tracking-wide text-muted-foreground hover:text-destructive underline-offset-2 hover:underline"
-                      onClick={async () => {
-                        if (!window.confirm("Remove all pending price-alert rules for your account?")) return;
-                        try {
-                          await store.clearAllAlerts();
-                        } catch (e) {
-                          window.alert(e instanceof Error ? e.message : "Could not clear alerts.");
-                        }
-                      }}
-                    >
-                      Clear all pending
-                    </button>
-                  )}
-                </div>
-                {store.alerts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No pending rules. Each new alert is one use only after it fires.</p>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {store.alerts.map((a) => (
-                      <li
-                        key={a.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-background/80 px-2 py-1.5"
-                      >
-                        <span className="font-mono text-xs">
-                          <span className="font-semibold">{a.ticker}</span>
-                          {" · "}
-                          {a.rule_type === "price_above" ? "≥" : "≤"} ${a.threshold.toFixed(2)}
-                          {" · "}
-                          Email
-                        </span>
-                        <button
-                          type="button"
-                          className="text-xs text-muted-foreground hover:text-destructive"
-                          onClick={async () => {
-                            try {
-                              await store.deleteAlertRule(a.id);
-                            } catch (e) {
-                              window.alert(e instanceof Error ? e.message : "Could not remove rule.");
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border p-4 space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Event Calendar</h3>
               <button type="button" onClick={() => store.fetchEvents(store.selectedTicker || "AAPL")} className="px-3 py-1.5 rounded border border-border text-sm">Load Detailed Events</button>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -426,29 +259,6 @@ export default function Index() {
             <div className="rounded-xl border border-border p-4 space-y-2">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Export report</h3>
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const raw = window.prompt("Recipient email(s), comma-separated");
-                    if (!raw) return;
-                    const recipients = raw.split(",").map((s) => s.trim()).filter(Boolean);
-                    if (!recipients.length) return;
-                    try {
-                      await store.emailReport({
-                        selected: store.stockData,
-                        compare: store.compareData,
-                        portfolio: store.portfolioSummary,
-                        events: store.events,
-                      }, recipients);
-                      window.alert("Report emailed successfully.");
-                    } catch (e) {
-                      window.alert(e instanceof Error ? e.message : "Failed to send report email.");
-                    }
-                  }}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-border text-sm hover:bg-secondary/40 transition-colors"
-                >
-                  <Mail className="w-4 h-4" /> Send report via email
-                </button>
                 <button
                   type="button"
                   onClick={() =>

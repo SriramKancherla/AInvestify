@@ -81,18 +81,6 @@ export interface PortfolioHolding {
   pnl_pct: number;
 }
 
-export interface AlertRule {
-  id: string;
-  ticker: string;
-  rule_type: "price_above" | "price_below";
-  threshold: number;
-  channel_email: boolean;
-  /** @deprecated API may still send this; same as channel_whatsapp */
-  channel_push?: boolean;
-  channel_whatsapp: boolean;
-  enabled: boolean;
-}
-
 const STORAGE_KEYS = {
   RECENT: "ainvestify_recent",
   FAVORITES: "ainvestify_favorites",
@@ -284,20 +272,6 @@ function getTickerDataSingleFlight(ticker: string): Promise<StockData> {
   return req;
 }
 
-function normalizeAlert(a: Record<string, unknown>): AlertRule {
-  const cw = Boolean(a.channel_whatsapp ?? a.channel_push);
-  return {
-    id: String(a.id ?? ""),
-    ticker: String(a.ticker ?? ""),
-    rule_type: a.rule_type === "price_below" ? "price_below" : "price_above",
-    threshold: Number(a.threshold ?? 0),
-    channel_email: Boolean(a.channel_email ?? true),
-    channel_whatsapp: cw,
-    channel_push: cw,
-    enabled: Boolean(a.enabled ?? true),
-  };
-}
-
 export function useStockStore() {
   const { session } = useAuth();
   const [selectedTicker, setSelectedTicker] = useState<string>("");
@@ -320,8 +294,6 @@ export function useStockStore() {
   const [portfolio, setPortfolio] = useState<PortfolioHolding[]>([]);
   const [portfolioSummary, setPortfolioSummary] = useState<{ total_market_value: number; total_cost_basis: number; total_pnl: number; total_pnl_pct: number } | null>(null);
   const [watchlists, setWatchlists] = useState<Record<string, string[]>>({ default: [] });
-  const [alerts, setAlerts] = useState<AlertRule[]>([]);
-  const [preferences, setPreferences] = useState<{ email: string }>({ email: "" });
   const [guestToken, setGuestToken] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) || "");
   const [events, setEvents] = useState<Array<{ id: string; event_type: string; event_date: string; risk_level: string; details?: string; source?: string }>>([]);
   const [backtest, setBacktest] = useState<Record<string, unknown> | null>(null);
@@ -382,14 +354,6 @@ export function useStockStore() {
     setWatchlists(map);
   }, []);
 
-  const refreshNotificationSettings = useCallback(async () => {
-    const res = await apiJson<{ email?: string | null }>("/api/me/notifications").catch(() => ({}));
-    setPreferences((p) => ({
-      ...p,
-      email: typeof res.email === "string" ? res.email : p.email,
-    }));
-  }, []);
-
   const addHolding = useCallback(async (ticker: string, quantity: number, avgBuyPrice: number) => {
     await apiJson("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker, quantity, avg_buy_price: avgBuyPrice }) });
     await refreshPortfolio();
@@ -405,51 +369,11 @@ export function useStockStore() {
     await refreshWatchlists();
   }, [refreshWatchlists]);
 
-  const refreshAlerts = useCallback(async () => {
-    const res = await apiJson<{ alerts: Record<string, unknown>[] }>("/api/alerts").catch(() => ({ alerts: [] }));
-    setAlerts((res.alerts || []).map((r) => normalizeAlert(r)));
-  }, []);
-
   useEffect(() => {
     if (!session?.user?.id) return;
     void refreshPortfolio();
     void refreshWatchlists();
-    void refreshAlerts();
-    void refreshNotificationSettings();
-  }, [session?.user?.id, refreshPortfolio, refreshWatchlists, refreshAlerts, refreshNotificationSettings]);
-
-  const createAlertRule = useCallback(async (payload: Pick<AlertRule, "ticker" | "rule_type" | "threshold">) => {
-    const res = await apiJson<{
-      alert?: AlertRule;
-      evaluate?: { triggered_count?: number; triggered?: Array<{ delivered?: { email?: boolean; whatsapp?: boolean } }> };
-    }>("/api/alerts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticker: payload.ticker,
-        rule_type: payload.rule_type,
-        threshold: payload.threshold,
-        channel_email: true,
-        channel_whatsapp: false,
-      }),
-    });
-    await refreshAlerts();
-    return res;
-  }, [refreshAlerts]);
-
-  const deleteAlertRule = useCallback(async (id: string) => {
-    await apiJson(`/api/alerts/${encodeURIComponent(id)}`, { method: "DELETE" });
-    await refreshAlerts();
-  }, [refreshAlerts]);
-
-  const clearAllAlerts = useCallback(async () => {
-    await apiJson("/api/alerts", { method: "DELETE" });
-    await refreshAlerts();
-  }, [refreshAlerts]);
-
-  const evaluateAlertsNow = useCallback(async () => {
-    return await apiJson<{ triggered_count: number; triggered: Array<Record<string, unknown>> }>("/api/alerts/evaluate", { method: "POST" });
-  }, []);
+  }, [session?.user?.id, refreshPortfolio, refreshWatchlists]);
 
   const fetchEvents = useCallback(async (ticker: string) => {
     const res = await apiJson<{ events: Array<{ id: string; event_type: string; event_date: string; risk_level: string; details?: string; source?: string }> }>(`/api/events/${encodeURIComponent(ticker)}`).catch(() => ({ events: [] }));
@@ -470,21 +394,6 @@ export function useStockStore() {
     a.download = `AInvestify-${sym}-report.pdf`;
     a.click();
     URL.revokeObjectURL(href);
-  }, []);
-
-  const emailReport = useCallback(async (payload: Record<string, unknown>, recipients: string[]) => {
-    const to = recipients.map((r) => r.trim()).filter(Boolean);
-    if (!to.length) throw new Error("At least one recipient is required.");
-    const sym = String((payload.selected as StockData | undefined)?.ticker || "Report").replace(/[^a-zA-Z0-9._-]/g, "") || "Report";
-    await apiJson<{ ok: boolean; sent_to: string[]; filename: string }>("/api/report/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to,
-        subject: `AInvestify report — ${sym}`,
-        payload,
-      }),
-    });
   }, []);
 
   const ensureGuestAuth = useCallback(async () => {
@@ -563,14 +472,12 @@ export function useStockStore() {
     stockData, compareData,
     loading, error,
     recentStocks, favorites, allTickers,
-    portfolio, portfolioSummary, watchlists, alerts, preferences, events, backtest,
-    setPreferences,
+    portfolio, portfolioSummary, watchlists, events, backtest,
     toggleFavorite,
-    refreshPortfolio, refreshWatchlists, refreshNotificationSettings,
+    refreshPortfolio, refreshWatchlists,
     addHolding, removeHolding,
     saveWatchlist,
-    refreshAlerts, createAlertRule, deleteAlertRule, clearAllAlerts, evaluateAlertsNow,
-    fetchEvents, runBacktest, exportReport, emailReport, ensureGuestAuth, syncCloudState,
+    fetchEvents, runBacktest, exportReport, ensureGuestAuth, syncCloudState,
     fetchStock, fetchCompare,
     clearActiveStock,
   };

@@ -38,25 +38,6 @@ services:
         value: "300"
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
-      # --- Email (price alerts, report email, etc.) ---
-      # Render FREE web services block outbound SMTP (25/465/587). Use Resend over HTTPS instead:
-      # https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports
-      - key: RESEND_API_KEY
-        sync: false
-      # Verified sender (your domain) or Resend test sender — see https://resend.com/docs
-      # - key: RESEND_FROM_EMAIL
-      #   sync: false
-      # Optional: classic SMTP (paid Render / local / VPS). Not available on Render free web.
-      # - key: EMAIL_SMTP_HOST
-      #   value: smtp.gmail.com
-      # - key: EMAIL_SMTP_PORT
-      #   value: "465"
-      # - key: EMAIL_SMTP_FORCE_IPV4
-      #   value: "false"
-      # - key: EMAIL_USER
-      #   sync: false
-      # - key: EMAIL_PASS
-      #   sync: false
       # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
       # - key: SUPABASE_URL
       #   sync: false

@@ -3,15 +3,12 @@ from __future__ import annotations
 from typing import Any, Literal
 import os
 import logging
-import html
-import smtplib
 import json
 import requests
 from pathlib import Path
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from email.message import EmailMessage
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,16 +36,10 @@ from backend.feature_services import (
     sync_pull,
     sync_push,
 )
-from backend.notify import outbound_email_configured, smtp_deliver_message
 from backend.supabase_jwt import verify_access_token
 from backend.user_data import (
     add_portfolio_holding,
-    create_alert,
-    delete_alert,
-    delete_all_alerts,
     delete_portfolio_holding,
-    evaluate_alerts,
-    list_alerts,
     list_portfolio,
     list_watchlists,
     upsert_watchlist,
@@ -229,29 +220,6 @@ def _require_auth_claims(request: Request) -> dict[str, Any]:
         raise _std_error(401, "unauthorized", str(e) or "Invalid or expired token.") from e
 
 
-def _user_email_from_claims(claims: dict[str, Any]) -> str | None:
-    """Email for alerts / profile; Supabase may put it only in user_metadata or identities."""
-    e = str(claims.get("email") or "").strip()
-    if e:
-        return e
-    meta = claims.get("user_metadata")
-    if isinstance(meta, dict):
-        e = str(meta.get("email") or "").strip()
-        if e:
-            return e
-    identities = claims.get("identities")
-    if isinstance(identities, list):
-        for ident in identities:
-            if not isinstance(ident, dict):
-                continue
-            idata = ident.get("identity_data")
-            if isinstance(idata, dict):
-                e = str(idata.get("email") or "").strip()
-                if e:
-                    return e
-    return None
-
-
 def _require_auth_user(request: Request) -> str:
     claims = _require_auth_claims(request)
     sub = str(claims.get("sub") or "").strip()
@@ -304,22 +272,9 @@ class WatchlistRequest(BaseModel):
     tickers: list[str] = Field(default_factory=list)
 
 
-class AlertRequest(BaseModel):
-    ticker: str
-    rule_type: Literal["price_above", "price_below"]
-    threshold: float
-    channel_email: bool = True
-
-
 class SyncPushRequest(BaseModel):
     token: str
     state: dict[str, Any] = Field(default_factory=dict)
-
-
-class ReportEmailRequest(BaseModel):
-    to: list[str] = Field(default_factory=list, description="Recipient email addresses")
-    payload: dict[str, Any] = Field(default_factory=dict, description="Report payload used for PDF export")
-    subject: str | None = Field(default=None, description="Optional email subject")
 
 
 class UnstickEmailRequest(BaseModel):
@@ -592,68 +547,6 @@ def events(ticker: str) -> dict:
     return get_events(ticker)
 
 
-@app.get("/api/alerts")
-def alerts_list(request: Request) -> dict:
-    uid = _require_auth_user(request)
-    return list_alerts(uid)
-
-
-@app.delete("/api/alerts")
-def alerts_delete_all(request: Request) -> dict:
-    """Clear all pending one-shot price rules for the signed-in user."""
-    uid = _require_auth_user(request)
-    return delete_all_alerts(uid)
-
-
-@app.post("/api/alerts")
-def alerts_add(req: AlertRequest, request: Request) -> dict:
-    """
-    Persist the rule, then run one evaluation pass so already-met conditions
-    (e.g. price already above threshold) send email/WhatsApp without a separate /evaluate call.
-    """
-    claims = _require_auth_claims(request)
-    uid = str(claims.get("sub") or "").strip()
-    email = _user_email_from_claims(claims)
-    if not uid:
-        raise _std_error(401, "unauthorized", "Token subject missing.")
-    # Price alerts are email-only; ignore any client-sent channel_whatsapp.
-    created = create_alert(uid, req.ticker, req.rule_type, req.threshold, req.channel_email, False)
-    new_id = str((created.get("alert") or {}).get("id") or "").strip() or None
-    try:
-        eval_result = evaluate_alerts(uid, email, only_alert_id=new_id)
-    except Exception as e:
-        _LOG.warning("post-alert evaluate failed: %s", e)
-        eval_result = {"triggered_count": 0, "triggered": [], "evaluate_error": str(e)}
-    return {**created, "evaluate": eval_result}
-
-
-@app.delete("/api/alerts/{alert_id}")
-def alerts_remove(alert_id: str, request: Request) -> dict:
-    uid = _require_auth_user(request)
-    return delete_alert(uid, alert_id)
-
-
-@app.post("/api/alerts/evaluate")
-def alerts_eval(request: Request) -> dict:
-    claims = _require_auth_claims(request)
-    uid = str(claims.get("sub") or "").strip()
-    email = _user_email_from_claims(claims)
-    if not uid:
-        raise _std_error(401, "unauthorized", "Token subject missing.")
-    return evaluate_alerts(uid, email)
-
-
-@app.get("/api/me/notifications")
-def me_notifications(request: Request) -> dict:
-    claims = _require_auth_claims(request)
-    uid = str(claims.get("sub") or "").strip()
-    if not uid:
-        raise _std_error(401, "unauthorized", "Token subject missing.")
-    email = _user_email_from_claims(claims)
-    # Email-only: WhatsApp/phone notifications are disabled.
-    return {"email": email}
-
-
 @app.get("/api/backtest/{ticker}")
 def backtest(ticker: str, period: str = "1y") -> dict:
     try:
@@ -675,68 +568,6 @@ def report_export(payload: dict, request: Request) -> Response:
         )
     except Exception as e:
         raise _std_error(500, "report_export_error", str(e))
-
-
-def _report_email_html(payload: dict[str, Any]) -> str:
-    selected = payload.get("selected") if isinstance(payload.get("selected"), dict) else {}
-    ticker = html.escape(str(selected.get("ticker") or "STOCK"))
-    company = html.escape(str(selected.get("company_name") or "Unknown Company"))
-    recommendation = html.escape(str(selected.get("recommendation") or "—"))
-    now = html.escape(time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()))
-    return f"""
-<div style="font-family: Arial, Helvetica, sans-serif; color:#0f172a; line-height:1.5;">
-  <h2 style="margin:0 0 6px 0;">AInvestify Report</h2>
-  <p style="margin:0 0 14px 0; color:#475569;">Generated {now}</p>
-  <div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px 14px; background:#f8fafc;">
-    <p style="margin:0;"><strong>{company}</strong> ({ticker})</p>
-    <p style="margin:8px 0 0 0;"><strong>Model view:</strong> {recommendation}</p>
-  </div>
-  <p style="margin-top:16px;">Please find the full PDF report attached.</p>
-  <hr style="border:none; border-top:1px solid #e2e8f0; margin:18px 0;" />
-  <p style="font-size:12px; color:#475569; margin:0;">
-    Disclaimer: AInvestify outputs are model-based and may be incorrect, incomplete, or delayed.
-    This content is for education and research only, not investment/tax/legal advice.
-  </p>
-  <p style="font-size:12px; color:#64748b; margin:10px 0 0 0;">
-    Creators:
-    <a href="https://www.linkedin.com/in/sriram-kancherla-80a7b028a/">Sriram Kancherla</a> ·
-    <a href="https://www.linkedin.com/in/vishwa-yadavalli-65503628b/">Viswanath Parshuram Yadavalli</a>
-  </p>
-</div>
-"""
-
-
-def _smtp_deliver(sender: str, password: str, msg: EmailMessage) -> None:
-    """Send via Gmail-compatible SMTP. Set EMAIL_SMTP_PORT=465 if STARTTLS on 587 fails on your network."""
-    host = (os.getenv("EMAIL_SMTP_HOST") or "smtp.gmail.com").strip()
-    port = _env_int("EMAIL_SMTP_PORT", 587)
-    if "gmail.com" in host.lower() and len(password) != 16:
-        logging.warning(
-            "EMAIL_PASS is %s chars after stripping spaces; Gmail App Passwords are normally 16 characters.",
-            len(password),
-        )
-    try:
-        smtp_deliver_message(sender, password, msg, timeout=20)
-    except smtplib.SMTPAuthenticationError as e:
-        logging.warning("SMTP auth failed for %s: %s", sender, e)
-        raise _std_error(
-            502,
-            "smtp_auth_failed",
-            "Gmail rejected the login. Confirm: (1) EMAIL_USER is the exact Gmail that created the App Password, "
-            "(2) EMAIL_PASS is a Google App Password (not your normal password; 16 characters after removing spaces), "
-            "(3) 2-Step Verification is on for that account. In shell use single quotes: export EMAIL_PASS='....'. "
-            "Optional: set EMAIL_SMTP_PORT=465. Workspace accounts may need admin to allow SMTP/App Passwords.",
-        ) from e
-    except smtplib.SMTPException as e:
-        logging.warning("SMTP error: %s", e)
-        raise _std_error(502, "email_send_failed", "Could not send email. Try again in a moment.") from e
-    except OSError as e:
-        logging.warning("SMTP network error: %s", e)
-        raise _std_error(
-            502,
-            "email_send_failed",
-            f"Could not reach mail server at {host}:{port}. Check network and try again.",
-        ) from e
 
 
 def _supabase_admin_headers() -> dict[str, str]:
@@ -853,42 +684,6 @@ def unstick_email_confirm(req: UnstickEmailRequest, request: Request) -> dict:
         raise _std_error(500, "user_lookup_error", "Could not resolve user id.")
     _supabase_admin_confirm_user_email(uid)
     return {"ok": True, "fixed": True}
-
-
-@app.post("/api/report/email")
-def report_email(req: ReportEmailRequest, request: Request) -> dict:
-    _require_auth_user(request)
-    try:
-        sender = (os.getenv("EMAIL_USER") or "").strip()
-        password = (os.getenv("EMAIL_PASS") or "").strip().replace(" ", "")
-        if not outbound_email_configured():
-            raise _std_error(
-                400,
-                "email_not_configured",
-                "Set RESEND_API_KEY for email on Render free tier (SMTP blocked), or EMAIL_USER/EMAIL_PASS for SMTP.",
-            )
-        recipients = [r.strip() for r in req.to if isinstance(r, str) and r.strip()]
-        if not recipients:
-            raise _std_error(400, "email_recipients_required", "At least one recipient email is required.")
-
-        pdf_bytes = build_report_pdf_bytes(req.payload)
-        filename = report_attachment_filename(req.payload)
-        subject = (req.subject or "").strip() or f"AInvestify report — {filename.replace('.pdf', '')}"
-
-        msg = EmailMessage()
-        msg["From"] = sender
-        msg["To"] = ", ".join(recipients)
-        msg["Subject"] = subject
-        msg.set_content("Your AInvestify report is attached as a PDF.")
-        msg.add_alternative(_report_email_html(req.payload), subtype="html")
-        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
-
-        _smtp_deliver(sender, password, msg)
-        return {"ok": True, "sent_to": recipients, "filename": filename}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise _std_error(500, "report_email_error", str(e))
 
 
 @app.post("/api/auth/guest")

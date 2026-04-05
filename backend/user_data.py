@@ -10,7 +10,6 @@ from typing import Any
 import requests
 
 from backend.insights_service import get_chart_data
-from backend.notify import send_price_alert_email
 
 _LOG = logging.getLogger("ainvestify.user_data")
 
@@ -103,7 +102,6 @@ def _enrich_holdings(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 _mem_portfolio: dict[str, list[dict[str, Any]]] = defaultdict(list)
 _mem_watchlists: dict[str, dict[str, list[str]]] = defaultdict(lambda: {"default": []})
-_mem_alerts: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
 
 def _mem_list_portfolio(user_id: str) -> dict[str, Any]:
@@ -152,97 +150,6 @@ def _mem_upsert_watchlist(user_id: str, name: str, tickers: list[str]) -> dict[s
     clean_name = name.strip() or "default"
     _mem_watchlists[user_id][clean_name] = sorted({t.upper().strip() for t in tickers if t.strip()})
     return {"name": clean_name, "tickers": _mem_watchlists[user_id][clean_name]}
-
-
-def _mem_create_alert(
-    user_id: str, ticker: str, rule_type: str, threshold: float, channel_email: bool, channel_whatsapp: bool
-) -> dict[str, Any]:
-    now = _now_iso()
-    aid = str(uuid.uuid4())
-    row = {
-        "id": aid,
-        "ticker": ticker.upper().strip(),
-        "rule_type": rule_type,
-        "threshold": threshold,
-        "channel_email": channel_email,
-        "channel_whatsapp": channel_whatsapp,
-        "enabled": True,
-        "created_at": now,
-        "updated_at": now,
-    }
-    _mem_alerts[user_id].append(row)
-    return {"alert": _alert_api(row)}
-
-
-def _alert_api(row: dict[str, Any]) -> dict[str, Any]:
-    cw = bool(row.get("channel_whatsapp"))
-    return {
-        "id": str(row["id"]),
-        "ticker": str(row["ticker"]),
-        "rule_type": str(row["rule_type"]),
-        "threshold": float(row["threshold"]),
-        "channel_email": bool(row.get("channel_email", True)),
-        "channel_whatsapp": cw,
-        "channel_push": cw,
-        "enabled": bool(row.get("enabled", True)),
-        "created_at": str(row.get("created_at", "")),
-        "updated_at": str(row.get("updated_at", "")),
-    }
-
-
-def _mem_list_alerts(user_id: str) -> dict[str, Any]:
-    return {"alerts": [_alert_api(a) for a in _mem_alerts[user_id]]}
-
-
-def _mem_delete_alert(user_id: str, alert_id: str) -> dict[str, Any]:
-    before = len(_mem_alerts[user_id])
-    _mem_alerts[user_id] = [a for a in _mem_alerts[user_id] if str(a["id"]) != alert_id]
-    return {"deleted": before != len(_mem_alerts[user_id])}
-
-
-def _mem_evaluate(user_id: str, user_email: str | None, only_alert_id: str | None = None) -> dict[str, Any]:
-    """One-shot rules: when price satisfies the rule, notify then remove the rule."""
-    triggered: list[dict[str, Any]] = []
-    for a in list(_mem_alerts[user_id]):
-        if not a.get("enabled", True):
-            continue
-        aid = str(a["id"])
-        if only_alert_id and aid != only_alert_id:
-            continue
-        chart = get_chart_data(str(a["ticker"]), period="5d", interval="1d")
-        points = chart.get("points", [])
-        if not points:
-            continue
-        price = float(points[-1]["close"])
-        hit = (a["rule_type"] == "price_above" and price >= float(a["threshold"])) or (
-            a["rule_type"] == "price_below" and price <= float(a["threshold"])
-        )
-        if not hit:
-            continue
-        delivered_email = False
-        email_delivery_error: str | None = None
-        if a.get("channel_email"):
-            if user_email:
-                delivered_email, email_delivery_error = send_price_alert_email(
-                    user_email, str(a["ticker"]), price, str(a["rule_type"]), float(a["threshold"])
-                )
-            else:
-                email_delivery_error = "no_recipient_email_in_session"
-        _mem_delete_alert(user_id, aid)
-        triggered.append(
-            {
-                "alert_id": aid,
-                "ticker": str(a["ticker"]),
-                "price": price,
-                "rule_type": str(a["rule_type"]),
-                "threshold": float(a["threshold"]),
-                "delivered": {"email": delivered_email, "whatsapp": False},
-                "email_delivery_error": email_delivery_error,
-                "rule_deleted": True,
-                "evaluated_at": _now_iso(),
-            }
-        )
-    return {"triggered_count": len(triggered), "triggered": triggered}
 
 
 # --- Supabase ---
@@ -318,101 +225,6 @@ def _sb_upsert_watchlist(user_id: str, name: str, tickers: list[str]) -> dict[st
     return {"name": str(row.get("name", clean_name)), "tickers": list(row.get("tickers", clean_tickers))}
 
 
-def _sb_fetch_alert_rows(user_id: str) -> list[dict[str, Any]]:
-    r = _sb_req("GET", "alert_rules", params={"user_id": f"eq.{user_id}", "select": "*", "order": "created_at.asc"})
-    if r.status_code >= 400:
-        raise RuntimeError("Could not load alerts.")
-    rows = r.json()
-    return rows if isinstance(rows, list) else []
-
-
-def _sb_list_alerts(user_id: str) -> dict[str, Any]:
-    rows = _sb_fetch_alert_rows(user_id)
-    return {"alerts": [_alert_api(dict(x)) for x in rows]}
-
-
-def _sb_create_alert(
-    user_id: str, ticker: str, rule_type: str, threshold: float, channel_email: bool, channel_whatsapp: bool
-) -> dict[str, Any]:
-    body = {
-        "user_id": user_id,
-        "ticker": ticker.upper().strip(),
-        "rule_type": rule_type,
-        "threshold": threshold,
-        "channel_email": channel_email,
-        "channel_whatsapp": channel_whatsapp,
-        "enabled": True,
-        "updated_at": _now_iso(),
-    }
-    r = _sb_req("POST", "alert_rules", json_body=[body], extra_headers={"Prefer": "return=representation"})
-    if r.status_code >= 400:
-        raise RuntimeError("Could not create alert.")
-    data = r.json()
-    row = data[0] if isinstance(data, list) and data else body
-    return {"alert": _alert_api(dict(row))}
-
-
-def _sb_delete_alert(user_id: str, alert_id: str) -> dict[str, Any]:
-    r = _sb_req("DELETE", "alert_rules", params={"id": f"eq.{alert_id}", "user_id": f"eq.{user_id}"})
-    return {"deleted": r.status_code < 400}
-
-
-def _sb_delete_all_alerts(user_id: str) -> dict[str, Any]:
-    r = _sb_req("DELETE", "alert_rules", params={"user_id": f"eq.{user_id}"})
-    if r.status_code >= 400:
-        _LOG.warning("delete all alerts failed: %s %s", r.status_code, r.text[:400])
-        return {"ok": False}
-    return {"ok": True}
-
-
-def _sb_evaluate(user_id: str, user_email: str | None, only_alert_id: str | None = None) -> dict[str, Any]:
-    rows = _sb_fetch_alert_rows(user_id)
-    triggered: list[dict[str, Any]] = []
-    for raw in rows:
-        if not raw.get("enabled", True):
-            continue
-        aid = str(raw.get("id") or "")
-        if not aid:
-            continue
-        if only_alert_id and aid != only_alert_id:
-            continue
-        chart = get_chart_data(str(raw["ticker"]), period="5d", interval="1d")
-        points = chart.get("points", [])
-        if not points:
-            continue
-        price = float(points[-1]["close"])
-        hit = (raw["rule_type"] == "price_above" and price >= float(raw["threshold"])) or (
-            raw["rule_type"] == "price_below" and price <= float(raw["threshold"])
-        )
-        if not hit:
-            continue
-        delivered_email = False
-        delivered_whatsapp = False
-        email_delivery_error: str | None = None
-        if raw.get("channel_email"):
-            if user_email:
-                delivered_email, email_delivery_error = send_price_alert_email(
-                    user_email, str(raw["ticker"]), price, str(raw["rule_type"]), float(raw["threshold"])
-                )
-            else:
-                email_delivery_error = "no_recipient_email_in_session"
-        _sb_delete_alert(user_id, aid)
-        triggered.append(
-            {
-                "alert_id": aid,
-                "ticker": str(raw["ticker"]),
-                "price": price,
-                "rule_type": str(raw["rule_type"]),
-                "threshold": float(raw["threshold"]),
-                "delivered": {"email": delivered_email, "whatsapp": delivered_whatsapp},
-                "email_delivery_error": email_delivery_error,
-                "rule_deleted": True,
-                "evaluated_at": _now_iso(),
-            }
-        )
-    return {"triggered_count": len(triggered), "triggered": triggered}
-
-
 # --- Public API ---
 
 
@@ -444,38 +256,3 @@ def upsert_watchlist(user_id: str, name: str, tickers: list[str]) -> dict[str, A
     if _use_supabase():
         return _sb_upsert_watchlist(user_id, name, tickers)
     return _mem_upsert_watchlist(user_id, name, tickers)
-
-
-def create_alert(
-    user_id: str, ticker: str, rule_type: str, threshold: float, channel_email: bool, channel_whatsapp: bool
-) -> dict[str, Any]:
-    if _use_supabase():
-        return _sb_create_alert(user_id, ticker, rule_type, threshold, channel_email, channel_whatsapp)
-    return _mem_create_alert(user_id, ticker, rule_type, threshold, channel_email, channel_whatsapp)
-
-
-def list_alerts(user_id: str) -> dict[str, Any]:
-    if _use_supabase():
-        return _sb_list_alerts(user_id)
-    return _mem_list_alerts(user_id)
-
-
-def delete_alert(user_id: str, alert_id: str) -> dict[str, Any]:
-    if _use_supabase():
-        return _sb_delete_alert(user_id, alert_id)
-    return _mem_delete_alert(user_id, alert_id)
-
-
-def delete_all_alerts(user_id: str) -> dict[str, Any]:
-    """Remove all pending one-shot rules for this user."""
-    if _use_supabase():
-        return _sb_delete_all_alerts(user_id)
-    n = len(_mem_alerts[user_id])
-    _mem_alerts[user_id].clear()
-    return {"ok": True, "cleared_count": n}
-
-
-def evaluate_alerts(user_id: str, user_email: str | None, only_alert_id: str | None = None) -> dict[str, Any]:
-    if _use_supabase():
-        return _sb_evaluate(user_id, user_email, only_alert_id)
-    return _mem_evaluate(user_id, user_email, only_alert_id)
