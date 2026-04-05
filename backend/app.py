@@ -6,7 +6,6 @@ import logging
 import html
 import smtplib
 import json
-import secrets
 import requests
 from pathlib import Path
 import time
@@ -121,10 +120,6 @@ _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = {}
 _LOG = logging.getLogger("ainvestify.api")
 _INSIGHTS_RESP_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _INSIGHTS_INFLIGHT: dict[str, tuple[float, Any]] = {}
-_SIGNUP_OTP_CACHE: dict[str, tuple[float, str]] = {}
-# After OTP verify, user may call signup-complete within this window (seconds).
-_SIGNUP_OTP_VERIFIED_UNTIL: dict[str, float] = {}
-_FORGOT_OTP_CACHE: dict[str, tuple[float, str]] = {}
 
 
 def _client_ip(req: Request) -> str:
@@ -327,39 +322,9 @@ class ReportEmailRequest(BaseModel):
     subject: str | None = Field(default=None, description="Optional email subject")
 
 
-class SignupOtpSendRequest(BaseModel):
-    email: str
-
-
-class SignupOtpVerifyRequest(BaseModel):
-    email: str
-    otp: str
-
-
-class SignupEmailStatusRequest(BaseModel):
-    email: str
-
-
-class SignupCompleteRequest(BaseModel):
-    email: str
-    password: str
-    first_name: str = ""
-    last_name: str = ""
-
-
 class UnstickEmailRequest(BaseModel):
     email: str
     password: str
-
-
-class ForgotOtpSendRequest(BaseModel):
-    email: str
-
-
-class ForgotOtpResetRequest(BaseModel):
-    email: str
-    otp: str
-    new_password: str
 
 
 @asynccontextmanager
@@ -774,36 +739,6 @@ def _smtp_deliver(sender: str, password: str, msg: EmailMessage) -> None:
         ) from e
 
 
-def _email_otp_send(email: str, otp: str) -> None:
-    sender = (os.getenv("EMAIL_USER") or "").strip()
-    # Google App Passwords are often shown with spaces; SMTP accepts the 16-char form without spaces.
-    password = (os.getenv("EMAIL_PASS") or "").strip().replace(" ", "")
-    if not outbound_email_configured():
-        raise _std_error(
-            400,
-            "email_not_configured",
-            "Set RESEND_API_KEY for email on Render free tier (SMTP ports are blocked), or EMAIL_USER/EMAIL_PASS for SMTP elsewhere.",
-        )
-
-    msg = EmailMessage()
-    msg["From"] = sender
-    msg["To"] = email
-    msg["Subject"] = "AInvestify Email Verification OTP"
-    msg.set_content(f"Your AInvestify OTP is: {otp}. It expires in 10 minutes.")
-    msg.add_alternative(
-        f"""
-<div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
-  <h2>AInvestify Verification</h2>
-  <p>Your OTP is:</p>
-  <p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:10px 0;">{otp}</p>
-  <p>This OTP expires in 10 minutes.</p>
-</div>
-""",
-        subtype="html",
-    )
-    _smtp_deliver(sender, password, msg)
-
-
 def _supabase_admin_headers() -> dict[str, str]:
     url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
     service_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
@@ -834,18 +769,6 @@ def _supabase_find_user_by_email(email: str) -> dict[str, Any] | None:
         if isinstance(u, dict) and str(u.get("email") or "").strip().lower() == e:
             return u
     return None
-
-
-def _supabase_update_user_password(user_id: str, new_password: str) -> None:
-    headers = _supabase_admin_headers()
-    resp = requests.put(
-        f"{_supabase_url()}/auth/v1/admin/users/{user_id}",
-        headers=headers,
-        json={"password": new_password},
-        timeout=20,
-    )
-    if resp.status_code >= 400:
-        raise _std_error(500, "password_reset_failed", f"Password update failed ({resp.status_code}).")
 
 
 def _supabase_anon_key() -> str:
@@ -930,161 +853,6 @@ def unstick_email_confirm(req: UnstickEmailRequest, request: Request) -> dict:
         raise _std_error(500, "user_lookup_error", "Could not resolve user id.")
     _supabase_admin_confirm_user_email(uid)
     return {"ok": True, "fixed": True}
-
-
-@app.post("/api/auth/signup-otp/send")
-def signup_otp_send(req: SignupOtpSendRequest, request: Request) -> dict:
-    _check_rate_limit(
-        request,
-        "signup_otp_send",
-        _env_int("RATE_LIMIT_SIGNUP_OTP_COUNT", 6),
-        _env_int("RATE_LIMIT_SIGNUP_OTP_WINDOW_SECONDS", 3600),
-    )
-    email = (req.email or "").strip().lower()
-    if "@" not in email or "." not in email:
-        raise _std_error(400, "invalid_email", "Please enter a valid email.")
-    otp = f"{secrets.randbelow(1_000_000):06d}"
-    _SIGNUP_OTP_CACHE[email] = (time.time() + 600, otp)
-    _email_otp_send(email, otp)
-    return {"ok": True}
-
-
-@app.post("/api/auth/signup-otp/verify")
-def signup_otp_verify(req: SignupOtpVerifyRequest, request: Request) -> dict:
-    _check_rate_limit(
-        request,
-        "signup_otp_verify",
-        _env_int("RATE_LIMIT_SIGNUP_OTP_VERIFY_COUNT", 20),
-        _env_int("RATE_LIMIT_SIGNUP_OTP_VERIFY_WINDOW_SECONDS", 3600),
-    )
-    email = (req.email or "").strip().lower()
-    otp = (req.otp or "").strip()
-    row = _SIGNUP_OTP_CACHE.get(email)
-    if not row:
-        raise _std_error(400, "otp_missing", "OTP not found. Please request a new OTP.")
-    exp, expected = row
-    if time.time() > exp:
-        _SIGNUP_OTP_CACHE.pop(email, None)
-        raise _std_error(400, "otp_expired", "OTP expired. Please request a new OTP.")
-    if otp != expected:
-        raise _std_error(400, "otp_incorrect", "OTP is incorrect.")
-    _SIGNUP_OTP_CACHE.pop(email, None)
-    _SIGNUP_OTP_VERIFIED_UNTIL[email] = time.time() + _env_int("SIGNUP_OTP_VERIFIED_WINDOW_SECONDS", 900)
-    return {"ok": True, "verified": True}
-
-
-@app.post("/api/auth/signup-complete")
-def signup_complete(req: SignupCompleteRequest, request: Request) -> dict:
-    """Create Supabase user with email already confirmed (OTP was verified separately)."""
-    _check_rate_limit(
-        request,
-        "signup_complete",
-        _env_int("RATE_LIMIT_SIGNUP_COMPLETE_COUNT", 10),
-        _env_int("RATE_LIMIT_SIGNUP_COMPLETE_WINDOW_SECONDS", 3600),
-    )
-    email = (req.email or "").strip().lower()
-    password = (req.password or "").strip()
-    first_name = (req.first_name or "").strip()
-    last_name = (req.last_name or "").strip()
-    if "@" not in email or "." not in email:
-        raise _std_error(400, "invalid_email", "Please enter a valid email.")
-    if len(password) < 8:
-        raise _std_error(400, "weak_password", "Password must be at least 8 characters.")
-    if not first_name or not last_name:
-        raise _std_error(400, "name_required", "First name and last name are required.")
-    verified_until = _SIGNUP_OTP_VERIFIED_UNTIL.get(email, 0.0)
-    if time.time() > verified_until:
-        raise _std_error(
-            400,
-            "otp_session_expired",
-            "Email verification expired. Request a new OTP and verify again before completing signup.",
-        )
-    if _supabase_find_user_by_email(email):
-        raise _std_error(400, "email_already_registered", "This email is already registered. Sign in instead.")
-    headers = _supabase_admin_headers()
-    resp = requests.post(
-        f"{_supabase_url()}/auth/v1/admin/users",
-        headers=headers,
-        json={
-            "email": email,
-            "password": password,
-            "email_confirm": True,
-            "user_metadata": {"first_name": first_name, "last_name": last_name},
-        },
-        timeout=20,
-    )
-    if resp.status_code >= 400:
-        _LOG.warning("signup_complete admin create failed: %s %s", resp.status_code, resp.text[:300])
-        raise _std_error(400, "signup_failed", "Could not create account. The email may already be in use.")
-    _SIGNUP_OTP_VERIFIED_UNTIL.pop(email, None)
-    return {"ok": True, "created": True}
-
-
-@app.post("/api/auth/signup-email-status")
-def signup_email_status(req: SignupEmailStatusRequest) -> dict:
-    email = (req.email or "").strip().lower()
-    if "@" not in email or "." not in email:
-        raise _std_error(400, "invalid_email", "Please enter a valid email.")
-    user = _supabase_find_user_by_email(email)
-    return {"ok": True, "exists": bool(user)}
-
-
-_FORGOT_UNKNOWN_EMAIL_MSG = (
-    "This email is not registered yet. Use Sign up to create an account with this address first."
-)
-
-
-@app.post("/api/auth/forgot-otp/send")
-def forgot_otp_send(req: ForgotOtpSendRequest, request: Request) -> dict:
-    email = (req.email or "").strip().lower()
-    if "@" not in email or "." not in email:
-        raise _std_error(400, "invalid_email", "Please enter a valid email.")
-    user = _supabase_find_user_by_email(email)
-    if not user:
-        raise _std_error(400, "email_not_found", _FORGOT_UNKNOWN_EMAIL_MSG)
-    _check_rate_limit(
-        request,
-        "forgot_otp_send",
-        _env_int("RATE_LIMIT_FORGOT_OTP_COUNT", 6),
-        _env_int("RATE_LIMIT_FORGOT_OTP_WINDOW_SECONDS", 3600),
-    )
-    otp = f"{secrets.randbelow(1_000_000):06d}"
-    _FORGOT_OTP_CACHE[email] = (time.time() + 600, otp)
-    _email_otp_send(email, otp)
-    return {"ok": True}
-
-
-@app.post("/api/auth/forgot-otp/reset")
-def forgot_otp_reset(req: ForgotOtpResetRequest, request: Request) -> dict:
-    _check_rate_limit(
-        request,
-        "forgot_otp_reset",
-        _env_int("RATE_LIMIT_FORGOT_OTP_VERIFY_COUNT", 20),
-        _env_int("RATE_LIMIT_FORGOT_OTP_VERIFY_WINDOW_SECONDS", 3600),
-    )
-    email = (req.email or "").strip().lower()
-    otp = (req.otp or "").strip()
-    new_password = (req.new_password or "").strip()
-    if len(new_password) < 8:
-        raise _std_error(400, "weak_password", "Password must be at least 8 characters.")
-    row = _FORGOT_OTP_CACHE.get(email)
-    if not row:
-        raise _std_error(400, "otp_missing", "OTP not found. Please request a new OTP.")
-    exp, expected = row
-    if time.time() > exp:
-        _FORGOT_OTP_CACHE.pop(email, None)
-        raise _std_error(400, "otp_expired", "OTP expired. Please request a new OTP.")
-    if otp != expected:
-        raise _std_error(400, "otp_incorrect", "OTP is incorrect.")
-    user = _supabase_find_user_by_email(email)
-    if not user:
-        raise _std_error(400, "email_not_found", _FORGOT_UNKNOWN_EMAIL_MSG)
-    user_id = str(user.get("id") or "").strip()
-    if not user_id:
-        raise _std_error(500, "user_lookup_error", "Could not resolve user id.")
-    _supabase_update_user_password(user_id, new_password)
-    _FORGOT_OTP_CACHE.pop(email, None)
-    return {"ok": True, "reset": True}
 
 
 @app.post("/api/report/email")

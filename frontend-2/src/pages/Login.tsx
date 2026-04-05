@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const nextPath = useMemo(() => {
@@ -33,14 +34,20 @@ export default function LoginPage() {
         <div className="flex gap-2 text-sm">
           <button
             type="button"
-            onClick={() => setMode("signin")}
+            onClick={() => {
+              setMode("signin");
+              setInfo(null);
+            }}
             className={`px-3 py-1.5 rounded border ${mode === "signin" ? "border-primary text-primary" : "border-border"}`}
           >
             Sign in
           </button>
           <button
             type="button"
-            onClick={() => setMode("signup")}
+            onClick={() => {
+              setMode("signup");
+              setInfo(null);
+            }}
             className={`px-3 py-1.5 rounded border ${mode === "signup" ? "border-primary text-primary" : "border-border"}`}
           >
             Sign up
@@ -65,6 +72,7 @@ export default function LoginPage() {
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}
+        {info && <p className="text-xs text-emerald-400">{info}</p>}
         {!isSupabaseConfigured && (
           <p className="text-xs text-amber-500">
             Supabase is not configured. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend-2/.env`.
@@ -76,12 +84,21 @@ export default function LoginPage() {
           disabled={busy || !isSupabaseConfigured}
           onClick={async () => {
             setError(null);
+            setInfo(null);
             setBusy(true);
             try {
               if (!email || !password) throw new Error("Email and password are required.");
-              if (mode === "signin") await signIn(email, password);
-              else await signUp(email, password);
-              navigate(nextPath, { replace: true });
+              if (mode === "signin") {
+                await signIn(email, password);
+                navigate(nextPath, { replace: true });
+              } else {
+                const newSession = await signUp(email, password);
+                if (newSession) {
+                  navigate(nextPath, { replace: true });
+                } else {
+                  setInfo("Account created. If your project requires email confirmation, check your inbox and then sign in.");
+                }
+              }
             } catch (e) {
               setError(e instanceof Error ? e.message : "Authentication failed.");
             } finally {

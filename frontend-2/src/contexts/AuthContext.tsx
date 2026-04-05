@@ -7,7 +7,8 @@ type AuthContextValue = {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, metadata?: { first_name?: string; last_name?: string }) => Promise<void>;
+  /** Returns the new session when email confirmation is off; null when confirmation email was sent. */
+  signUp: (email: string, password: string, metadata?: { first_name?: string; last_name?: string }) => Promise<Session | null>;
   signOut: () => Promise<void>;
   accessToken: string;
 };
@@ -66,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       signUp: async (email: string, password: string, metadata?: { first_name?: string; last_name?: string }) => {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -74,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           },
         });
         if (error) throw error;
+        return data.session ?? null;
       },
       signOut: async () => {
         const { error } = await supabase.auth.signOut();

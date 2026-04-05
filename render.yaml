@@ -38,7 +38,7 @@ services:
         value: "300"
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
-      # --- Email ---
+      # --- Email (price alerts, report email, etc.) ---
       # Render FREE web services block outbound SMTP (25/465/587). Use Resend over HTTPS instead:
       # https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports
       - key: RESEND_API_KEY

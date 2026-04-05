@@ -4,11 +4,10 @@ import { motion } from "framer-motion";
 import ArrowCanvas from "@/components/landing/ArrowCanvas";
 import SiteFooter from "@/components/SiteFooter";
 import { useAuth } from "@/contexts/AuthContext";
-import { isSupabaseConfigured } from "@/lib/supabase";
-import { apiJson } from "@/lib/api";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 export default function LandingAuthPage() {
-  const { signIn, session, loading } = useAuth();
+  const { signIn, signUp, session, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -19,11 +18,6 @@ export default function LandingAuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [otpCooldownUntil, setOtpCooldownUntil] = useState(0);
-  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const nextPath = useMemo(() => {
     const from = (location.state as { from?: string } | null)?.from;
@@ -31,22 +25,9 @@ export default function LandingAuthPage() {
   }, [location.state]);
 
   useEffect(() => {
-    // Reset OTP flow when switching auth mode.
-    setOtpSent(false);
-    setOtpVerified(false);
-    setOtp("");
-    setOtpCooldownUntil(0);
-    setNowTs(Date.now());
     setInfo(null);
     setError(null);
   }, [mode]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNowTs(Date.now()), 500);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const otpCooldownLeft = Math.max(0, Math.ceil((otpCooldownUntil - nowTs) / 1000));
 
   if (!loading && session) return <Navigate to={nextPath} replace />;
 
@@ -119,7 +100,11 @@ export default function LandingAuthPage() {
               <h2 className="text-xl font-semibold text-foreground">
                 {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Forgot password"}
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">Use your email to access the dashboard.</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {mode === "forgot"
+                  ? "We will email you a password reset link if this address is registered."
+                  : "Use your email to access the dashboard."}
+              </p>
             </div>
             <div className="flex gap-2 text-sm">
               <button type="button" onClick={() => setMode("signin")} className={`px-3 py-1.5 rounded border ${mode === "signin" ? "border-primary text-primary" : "border-border"}`}>Sign in</button>
@@ -134,103 +119,41 @@ export default function LandingAuthPage() {
                 </div>
               )}
               <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder={mode === "forgot" ? "New password" : "Password"} className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-              {otpSent && (
-                <input
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="Enter OTP from your email"
-                  className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm"
-                />
+              {mode !== "forgot" && (
+                <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
               )}
             </div>
             {error && <p className="text-sm text-red-500">{error}</p>}
             {info && <p className="text-xs text-emerald-400">{info}</p>}
             {!isSupabaseConfigured && <p className="text-xs text-amber-500">Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend-2/.env`.</p>}
-            {(mode === "signup" || mode === "forgot") && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  disabled={busy || !isSupabaseConfigured || otpCooldownLeft > 0}
-                  onClick={async () => {
-                    setError(null);
-                    setInfo(null);
-                    setBusy(true);
-                    try {
-                      if (!email) throw new Error("Enter email before requesting OTP.");
-                      await apiJson<{ ok: boolean }>(mode === "forgot" ? "/api/auth/forgot-otp/send" : "/api/auth/signup-otp/send", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ email }),
-                      });
-                      setOtpSent(true);
-                      setOtpVerified(false);
-                      setOtpCooldownUntil(Date.now() + 30_000);
-                      setInfo("OTP sent to your email.");
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "Failed to send OTP.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="h-10 rounded border border-border text-sm hover:bg-secondary/40 disabled:opacity-60"
-                >
-                  {otpSent ? (otpCooldownLeft > 0 ? `Resend OTP (${otpCooldownLeft}s)` : "Resend OTP") : "Email Verification OTP"}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || !otpSent || !isSupabaseConfigured}
-                  onClick={async () => {
-                    setError(null);
-                    setInfo(null);
-                    setBusy(true);
-                    try {
-                      if (!otp.trim()) throw new Error("Enter OTP.");
-                      if (mode === "forgot") {
-                        await apiJson<{ ok: boolean; reset: boolean }>("/api/auth/forgot-otp/reset", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ email, otp: otp.trim(), new_password: password }),
-                        });
-                        setOtpVerified(true);
-                        setInfo("Password reset complete. You can now sign in.");
-                        setMode("signin");
-                        setOtp("");
-                        setOtpSent(false);
-                      } else {
-                        const status = await apiJson<{ ok: boolean; exists: boolean }>("/api/auth/signup-email-status", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ email }),
-                        });
-                        if (status.exists) {
-                          setOtpVerified(false);
-                          setError("Email already exists. Please sign in with this email or use another email.");
-                          return;
-                        }
-                        await apiJson<{ ok: boolean; verified: boolean }>("/api/auth/signup-otp/verify", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ email, otp: otp.trim() }),
-                        });
-                        setOtpVerified(true);
-                        setInfo("OTP verified. Complete signup now.");
-                      }
-                    } catch (e) {
-                      setOtpVerified(false);
-                      setError(e instanceof Error ? e.message : "OTP verification failed.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="h-10 rounded border border-border text-sm hover:bg-secondary/40 disabled:opacity-60"
-                >
-                  {mode === "forgot" ? "Verify OTP & Reset" : "Verify OTP"}
-                </button>
-              </div>
+
+            {mode === "forgot" && (
+              <button
+                type="button"
+                disabled={busy || !isSupabaseConfigured || !email.trim()}
+                onClick={async () => {
+                  setError(null);
+                  setInfo(null);
+                  setBusy(true);
+                  try {
+                    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+                      redirectTo: `${window.location.origin}/`,
+                    });
+                    if (resetErr) throw resetErr;
+                    setInfo("If this email is registered, check your inbox for a reset link (and spam).");
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Could not send reset email.");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="w-full h-10 rounded border border-border text-sm font-medium hover:bg-secondary/40 disabled:opacity-60"
+              >
+                {busy ? "Please wait…" : "Send reset link"}
+              </button>
             )}
+
+            {mode !== "forgot" && (
             <button
               type="button"
               disabled={busy || !isSupabaseConfigured}
@@ -243,24 +166,17 @@ export default function LandingAuthPage() {
                   if (mode === "signin") {
                     await signIn(email, password);
                     navigate(nextPath, { replace: true });
-                  } else if (mode === "forgot") {
-                    throw new Error("Use Email Verification OTP and Verify OTP & Reset for forgot password.");
                   } else {
                     if (!firstName.trim() || !lastName.trim()) throw new Error("First name and last name are required.");
-                    if (!otpVerified) throw new Error("Please verify OTP first.");
-                    await apiJson<{ ok: boolean; created: boolean }>("/api/auth/signup-complete", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        email,
-                        password,
-                        first_name: firstName.trim(),
-                        last_name: lastName.trim(),
-                      }),
+                    const newSession = await signUp(email, password, {
+                      first_name: firstName.trim(),
+                      last_name: lastName.trim(),
                     });
-                    await signIn(email, password);
-                    setInfo("Account ready. Redirecting…");
-                    navigate(nextPath, { replace: true });
+                    if (newSession) {
+                      navigate(nextPath, { replace: true });
+                    } else {
+                      setInfo("Account created. If your project requires email confirmation, check your inbox and then sign in.");
+                    }
                   }
                 } catch (e) {
                   setError(e instanceof Error ? e.message : "Authentication failed.");
@@ -270,8 +186,9 @@ export default function LandingAuthPage() {
               }}
               className="w-full h-10 rounded bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60"
             >
-              {busy ? "Please wait..." : mode === "signin" ? "Sign in" : mode === "forgot" ? "Reset via OTP section" : "Complete Signup"}
+              {busy ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
             </button>
+            )}
           </div>
         </div>
         </div>
