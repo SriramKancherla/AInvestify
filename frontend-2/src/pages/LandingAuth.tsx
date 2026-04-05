@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import ArrowCanvas from "@/components/landing/ArrowCanvas";
 import SiteFooter from "@/components/SiteFooter";
 import { useAuth } from "@/contexts/AuthContext";
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 export default function LandingAuthPage() {
   const { signIn, signUp, session, loading } = useAuth();
@@ -14,7 +14,7 @@ export default function LandingAuthPage() {
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,18 +98,13 @@ export default function LandingAuthPage() {
           <div data-no-arrow-spawn="true" className="rounded-xl border border-border bg-card/80 backdrop-blur p-5 space-y-4">
             <div>
               <h2 className="text-xl font-semibold text-foreground">
-                {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Forgot password"}
+                {mode === "signin" ? "Sign in" : "Create account"}
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                {mode === "forgot"
-                  ? "We will email you a password reset link if this address is registered."
-                  : "Use your email to access the dashboard."}
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">Use your email to access the dashboard.</p>
             </div>
             <div className="flex gap-2 text-sm">
               <button type="button" onClick={() => setMode("signin")} className={`px-3 py-1.5 rounded border ${mode === "signin" ? "border-primary text-primary" : "border-border"}`}>Sign in</button>
               <button type="button" onClick={() => setMode("signup")} className={`px-3 py-1.5 rounded border ${mode === "signup" ? "border-primary text-primary" : "border-border"}`}>Sign up</button>
-              <button type="button" onClick={() => setMode("forgot")} className={`px-3 py-1.5 rounded border ${mode === "forgot" ? "border-primary text-primary" : "border-border"}`}>Forgot</button>
             </div>
             <div className="space-y-2">
               {(mode === "signup") && (
@@ -119,41 +114,12 @@ export default function LandingAuthPage() {
                 </div>
               )}
               <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-              {mode !== "forgot" && (
-                <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-              )}
+              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
             </div>
             {error && <p className="text-sm text-red-500">{error}</p>}
             {info && <p className="text-xs text-emerald-400">{info}</p>}
             {!isSupabaseConfigured && <p className="text-xs text-amber-500">Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend-2/.env`.</p>}
 
-            {mode === "forgot" && (
-              <button
-                type="button"
-                disabled={busy || !isSupabaseConfigured || !email.trim()}
-                onClick={async () => {
-                  setError(null);
-                  setInfo(null);
-                  setBusy(true);
-                  try {
-                    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-                      redirectTo: `${window.location.origin}/`,
-                    });
-                    if (resetErr) throw resetErr;
-                    setInfo("If this email is registered, check your inbox for a reset link (and spam).");
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : "Could not send reset email.");
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                className="w-full h-10 rounded border border-border text-sm font-medium hover:bg-secondary/40 disabled:opacity-60"
-              >
-                {busy ? "Please wait…" : "Send reset link"}
-              </button>
-            )}
-
-            {mode !== "forgot" && (
             <button
               type="button"
               disabled={busy || !isSupabaseConfigured}
@@ -188,7 +154,6 @@ export default function LandingAuthPage() {
             >
               {busy ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
             </button>
-            )}
           </div>
         </div>
         </div>
