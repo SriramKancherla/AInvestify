@@ -18,6 +18,9 @@ uvicorn.log
 .vscode/
 .idea/
 
+# Node / frontend
+frontend-2/node_modules/
+
 # Python build artifacts
 build/
 dist/
