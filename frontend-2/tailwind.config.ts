@@ -58,6 +58,8 @@ export default {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
         },
+        gain: "hsl(var(--success))",
+        loss: "hsl(var(--destructive))",
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
@@ -77,6 +79,10 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        hero: "0 1px 2px hsl(230 13% 9% / 0.04), 0 8px 24px hsl(230 13% 9% / 0.06)",
+        pop: "0 1px 2px hsl(230 13% 9% / 0.05), 0 12px 32px hsl(230 13% 9% / 0.10)",
       },
       keyframes: {
         "accordion-down": {

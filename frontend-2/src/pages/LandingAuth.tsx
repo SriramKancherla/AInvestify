@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import ArrowCanvas from "@/components/landing/ArrowCanvas";
+import { BarChart3, Brain, Gauge, Mail, Lock, User } from "lucide-react";
 import SiteFooter from "@/components/SiteFooter";
+import Sparkline from "@/components/common/Sparkline";
 import { useAuth } from "@/contexts/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase";
+
+const VALUE_PROPS = [
+  { icon: BarChart3, title: "Fundamentals", desc: "valuation & financial health" },
+  { icon: Brain, title: "News sentiment", desc: "live headline classification" },
+  { icon: Gauge, title: "Blended AI score", desc: "one number, both signals" },
+];
+
+const PREVIEW_SPARK = [12, 13, 12.4, 14, 13.6, 15.2, 14.8, 16, 15.4, 17.1, 16.6, 18.4, 19];
 
 export default function LandingAuthPage() {
   const { signIn, signUp, session, loading } = useAuth();
@@ -31,136 +40,145 @@ export default function LandingAuthPage() {
 
   if (!loading && session) return <Navigate to={nextPath} replace />;
 
+  const submit = async () => {
+    setError(null);
+    setInfo(null);
+    setBusy(true);
+    try {
+      if (!email || !password) throw new Error("Email and password are required.");
+      if (mode === "signin") {
+        await signIn(email, password);
+        navigate(nextPath, { replace: true });
+      } else {
+        if (!firstName.trim() || !lastName.trim()) throw new Error("First and last name are required.");
+        const newSession = await signUp(email, password, { first_name: firstName.trim(), last_name: lastName.trim() });
+        if (newSession) navigate(nextPath, { replace: true });
+        else setInfo("Account created. If confirmation is required, check your inbox, then sign in.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Authentication failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      <div
-        className="absolute inset-0 z-0 bg-gradient-animated"
-        style={{ backgroundImage: "linear-gradient(160deg, hsl(222 47% 5%) 0%, hsl(230 50% 10%) 50%, hsl(222 47% 5%) 100%)" }}
-      />
-      <div className="grid-overlay grid-overlay-animated absolute inset-[-80px] z-[1] opacity-40" />
-      <motion.svg
-        className="absolute inset-0 z-[2] h-full w-full opacity-[0.08]"
-        preserveAspectRatio="none"
-        viewBox="0 0 1440 900"
-        initial={{ opacity: 0.03 }}
-        animate={{ opacity: [0.04, 0.1, 0.04] }}
-        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-      >
-        <motion.g
-          animate={{ x: [0, 20, 0], y: [0, -10, 0] }}
-          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <polyline fill="none" stroke="hsl(150 100% 64%)" strokeWidth="2" points="0,600 120,580 240,520 360,550 480,420 600,460 720,380 840,400 960,350 1080,370 1200,300 1320,320 1440,280" />
-        </motion.g>
-        <motion.g
-          animate={{ x: [0, -24, 0], y: [0, 8, 0] }}
-          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <polyline fill="none" stroke="hsl(0 100% 65%)" strokeWidth="2" points="0,400 120,430 240,480 360,450 480,500 600,470 720,520 840,510 960,560 1080,540 1200,590 1320,570 1440,620" />
-        </motion.g>
-      </motion.svg>
-
-      <motion.nav
-        data-no-arrow-spawn="true"
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="fixed top-0 left-0 right-0 z-40 glass-surface"
-      >
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            title="AInvestify home"
-            aria-label="AInvestify home"
-            className="flex items-center gap-2.5 bg-transparent border-none p-0 m-0 cursor-pointer"
-          >
-            <img src="/favicon.svg" alt="AInvestify" className="w-8 h-8 rounded-lg object-cover" />
-            <span className="font-display text-lg font-semibold tracking-tight text-foreground">
-              <span className="text-gradient-brand">AInvestify</span>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Nav — logo + wordmark only, nothing else until signed in. */}
+      <nav className="w-full border-b border-border/70">
+        <div className="mx-auto max-w-6xl flex items-center px-6 h-16">
+          <div className="flex items-center gap-2">
+            <img src="/favicon.svg" alt="AInvestify" className="w-8 h-8 rounded-lg" />
+            <span className="text-lg font-semibold tracking-tightish">
+              <span className="gradient-text">AI</span>
+              <span className="text-foreground">nvestify</span>
             </span>
-          </button>
-          <span className="text-xs text-muted-foreground">Stock Insights</span>
-        </div>
-      </motion.nav>
-
-      <div className="relative z-20 flex min-h-screen flex-col px-6 py-20 pt-28">
-        <div className="flex flex-1 w-full min-h-0 items-center justify-center">
-          <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
-          <div className="pointer-events-none">
-            <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="font-display text-5xl sm:text-7xl font-bold tracking-tight">
-              <span className="text-gradient-brand">AInvestify</span>
-            </motion.h1>
-            <motion.p initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mt-4 font-mono text-sm tracking-widest text-muted-foreground">
-              STOCK INSIGHTS
-            </motion.p>
           </div>
+        </div>
+      </nav>
 
-          <div data-no-arrow-spawn="true" className="rounded-xl border border-border bg-card/80 backdrop-blur p-5 space-y-4">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">
-                {mode === "signin" ? "Sign in" : "Create account"}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">Use your email to access the dashboard.</p>
+      <div className="flex-1 mx-auto max-w-6xl w-full px-6 py-14 sm:py-20">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          {/* Hero — one confident idea: kicker, headline, one line, three rows, preview. */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+            <p className="label-caps text-primary">AI-driven analysis</p>
+            <h1 className="mt-3 text-4xl sm:text-[44px] leading-[1.1] font-semibold tracking-tightish text-foreground">
+              Stock insights, in seconds
+            </h1>
+            <p className="mt-3 text-base text-muted-foreground max-w-sm">
+              Fundamentals and live news sentiment, blended into one explainable score.
+            </p>
+            <div className="mt-7 space-y-2.5">
+              {VALUE_PROPS.map((v) => (
+                <div key={v.title} className="flex items-center gap-2.5">
+                  <span className="h-7 w-7 rounded-md bg-primary/8 text-primary flex items-center justify-center shrink-0">
+                    <v.icon className="w-3.5 h-3.5" />
+                  </span>
+                  <p className="text-sm text-foreground">
+                    <span className="font-medium">{v.title}</span>
+                    <span className="text-muted-foreground"> — {v.desc}</span>
+                  </p>
+                </div>
+              ))}
             </div>
-            <div className="flex gap-2 text-sm">
-              <button type="button" onClick={() => setMode("signin")} className={`px-3 py-1.5 rounded border ${mode === "signin" ? "border-primary text-primary" : "border-border"}`}>Sign in</button>
-              <button type="button" onClick={() => setMode("signup")} className={`px-3 py-1.5 rounded border ${mode === "signup" ? "border-primary text-primary" : "border-border"}`}>Sign up</button>
+
+            {/* Product preview — the second thing the eye lands on. */}
+            <div className="mt-9 hidden sm:block max-w-sm elevated p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="ticker-badge">AAPL</span>
+                  <span className="text-xs text-muted-foreground">Apple Inc.</span>
+                </div>
+                <span className="font-mono text-xs kpi-positive">+2.14%</span>
+              </div>
+              <Sparkline data={PREVIEW_SPARK} up fill draw width={320} height={56} className="mt-3 w-full" />
             </div>
-            <div className="space-y-2">
-              {(mode === "signup") && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <input value={firstName} onChange={(e) => setFirstName(e.target.value)} type="text" placeholder="First name" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-                  <input value={lastName} onChange={(e) => setLastName(e.target.value)} type="text" placeholder="Last name" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
+          </motion.div>
+
+          {/* Auth card */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="w-full max-w-md mx-auto lg:ml-auto elevated p-8"
+          >
+            {/* Segmented control — only the active pill is a shape; inactive is bare text. */}
+            <div className="flex p-1 rounded-full bg-secondary/70 text-sm font-medium mb-6">
+              {(["signin", "signup"] as const).map((m) => (
+                <button key={m} onClick={() => setMode(m)} className="relative flex-1 h-9 rounded-full">
+                  {mode === m && (
+                    <motion.span
+                      layoutId="authSeg"
+                      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                      className="absolute inset-0 rounded-full bg-card shadow-sm"
+                    />
+                  )}
+                  <span className={`relative z-10 transition-colors ${mode === m ? "text-foreground" : "text-muted-foreground"}`}>
+                    {m === "signin" ? "Sign in" : "Sign up"}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              {mode === "signup" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" className="w-full h-11 pl-9 pr-3 rounded-lg border border-transparent bg-secondary text-sm transition-shadow focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20" />
+                  </div>
+                  <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" className="w-full h-11 px-3 rounded-lg border border-transparent bg-secondary text-sm transition-shadow focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20" />
                 </div>
               )}
-              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
-              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" className="w-full h-10 px-3 rounded border border-border bg-secondary/40 text-sm" />
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" className="w-full h-11 pl-9 pr-3 rounded-lg border border-transparent bg-secondary text-sm transition-shadow focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" onKeyDown={(e) => e.key === "Enter" && submit()} className="w-full h-11 pl-9 pr-3 rounded-lg border border-transparent bg-secondary text-sm transition-shadow focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20" />
+              </div>
             </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            {info && <p className="text-xs text-emerald-400">{info}</p>}
-            {!isSupabaseConfigured && <p className="text-xs text-amber-500">Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend-2/.env`.</p>}
+
+            {error && <p className="text-sm text-destructive mt-3">{error}</p>}
+            {info && <p className="text-xs text-success mt-3">{info}</p>}
+            {!isSupabaseConfigured && <p className="text-xs text-warning mt-3">Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable sign-in.</p>}
 
             <button
-              type="button"
+              onClick={submit}
               disabled={busy || !isSupabaseConfigured}
-              onClick={async () => {
-                setError(null);
-                setInfo(null);
-                setBusy(true);
-                try {
-                  if (!email || !password) throw new Error("Email and password are required.");
-                  if (mode === "signin") {
-                    await signIn(email, password);
-                    navigate(nextPath, { replace: true });
-                  } else {
-                    if (!firstName.trim() || !lastName.trim()) throw new Error("First name and last name are required.");
-                    const newSession = await signUp(email, password, {
-                      first_name: firstName.trim(),
-                      last_name: lastName.trim(),
-                    });
-                    if (newSession) {
-                      navigate(nextPath, { replace: true });
-                    } else {
-                      setInfo("Account created. If your project requires email confirmation, check your inbox and then sign in.");
-                    }
-                  }
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "Authentication failed.");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="w-full h-10 rounded bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60"
+              className="mt-5 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium transition-transform active:scale-[0.98] disabled:opacity-60"
             >
-              {busy ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
+              {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
             </button>
-          </div>
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              {mode === "signin" ? "New here? Switch to Sign up." : "Already have an account? Switch to Sign in."}
+            </p>
+          </motion.div>
         </div>
-        </div>
+
         <SiteFooter variant="landing" />
       </div>
-
-      <ArrowCanvas />
     </div>
   );
 }

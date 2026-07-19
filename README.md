@@ -441,5 +441,5 @@ Frontend dependencies are in `frontend-2/package.json` (React 18, Vite 5, TypeSc
   - Gmail: [Kancherlasriram2006@gmail.com](mailto:Kancherlasriram2006@gmail.com)
 
 - **Viswanath Parashuram Yadavalli**
-  - LinkedIn: [https://www.linkedin.com/in/vishwa-yadavalli-65503628b/](https://www.linkedin.com/in/vishwa-yadavalli-65503628b/)
+  - LinkedIn: [https://www.linkedin.com/in/vish-yadavalli-65503628b/](https://www.linkedin.com/in/vish-yadavalli-65503628b/)
   - Gmail: [vishwanaathh4@gmail.com](mailto:vishwanaathh4@gmail.com)

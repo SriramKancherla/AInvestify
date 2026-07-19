@@ -35,7 +35,7 @@ function CreatorsBlock({ emeraldAccent }: { emeraldAccent: boolean }) {
           </a>
         </p>
         <p className="text-xs">
-          <a href="https://linkedin.com/in/vishwa-yadavalli-65503628b" target="_blank" rel="noopener noreferrer" className={linkClass}>
+          <a href="https://linkedin.com/in/vish-yadavalli-65503628b" target="_blank" rel="noopener noreferrer" className={linkClass}>
             LinkedIn
           </a>
         </p>
@@ -64,17 +64,17 @@ function DisclaimerText({ emeraldAccent }: { emeraldAccent: boolean }) {
  * Landing: creators + disclaimer only — glass panel aligned with the auth card aesthetic.
  */
 export default function SiteFooter({ variant = "app", className }: SiteFooterProps) {
-  const emeraldAccent = variant === "landing";
+  const emeraldAccent = false;
 
   if (variant === "landing") {
     return (
-      <footer className={cn("relative z-20 mt-10 w-full max-w-5xl mx-auto px-0 pb-8 pt-6 border-t border-white/10", className)}>
-        <div className="rounded-xl border border-white/10 bg-card/35 backdrop-blur-md px-5 py-6 sm:px-6 space-y-6">
+      <footer className={cn("relative z-20 mt-12 w-full mx-auto pb-8 pt-6 border-t border-border", className)}>
+        <div className="space-y-6">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/70 mb-4">Creators</p>
+            <p className="label-caps mb-4">Creators</p>
             <CreatorsBlock emeraldAccent={emeraldAccent} />
           </div>
-          <div className="h-px bg-white/10" aria-hidden />
+          <div className="h-px bg-border" aria-hidden />
           <DisclaimerText emeraldAccent={emeraldAccent} />
         </div>
       </footer>

@@ -1,73 +1,78 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * AInvestify — Light theme design tokens.
+ * Minimal · fluid · premium fintech. Depth comes from hairline borders and
+ * whitespace, not glow. Exactly one elevated shadow (`.elevated`) per screen.
+ */
 @layer base {
   :root {
-    --background: 225 25% 6%;
-    --foreground: 210 40% 96%;
+    /* Warm off-white base — never pure white — to reduce glare. */
+    --background: 40 20% 98%;          /* #FAFAF9 */
+    --foreground: 230 13% 9%;          /* #14151A */
 
-    --card: 225 20% 9%;
-    --card-foreground: 210 40% 96%;
-    --card-hover: 225 20% 12%;
+    --card: 0 0% 100%;                 /* #FFFFFF */
+    --card-foreground: 230 13% 9%;
+    --card-hover: 40 13% 97%;
 
-    --popover: 225 20% 9%;
-    --popover-foreground: 210 40% 96%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 13% 9%;
 
-    --primary: 210 100% 56%;
+    /* Financial blue — actions, links, active states, focus rings only. */
+    --primary: 221 83% 53%;            /* #2563EB */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 210 100% 65%;
+    --primary-glow: 221 83% 60%;
 
-    --secondary: 225 15% 15%;
-    --secondary-foreground: 210 30% 80%;
+    /* Subtle neutral fill for inputs / quiet surfaces. */
+    --secondary: 40 13% 96%;           /* #F5F5F4 */
+    --secondary-foreground: 230 13% 20%;
 
-    --muted: 225 15% 13%;
-    --muted-foreground: 215 15% 50%;
+    --muted: 40 13% 96%;
+    --muted-foreground: 230 5% 44%;    /* #6B6D76 secondary text */
 
-    --accent: 170 80% 50%;
-    --accent-foreground: 225 25% 6%;
+    --accent: 40 13% 94%;
+    --accent-foreground: 230 13% 12%;
 
-    --destructive: 0 72% 55%;
+    /* Loss / negative. */
+    --destructive: 4 71% 50%;          /* #D93025 */
     --destructive-foreground: 0 0% 100%;
 
-    --success: 145 65% 45%;
+    /* Gain / positive. */
+    --success: 152 82% 34%;            /* #0F9D58 */
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 55%;
+
+    /* Warning — earnings soon / risk flags. */
+    --warning: 36 71% 42%;             /* #B7791F */
     --warning-foreground: 0 0% 100%;
 
-    --border: 225 15% 16%;
-    --input: 225 15% 16%;
-    --ring: 210 100% 56%;
+    --border: 48 8% 91%;               /* #EAEAE8 hairline */
+    --input: 48 8% 91%;
+    --ring: 221 83% 53%;
 
     --radius: 0.75rem;
 
-    --gradient-primary: linear-gradient(135deg, hsl(210 100% 56%), hsl(170 80% 50%));
-    --gradient-card: linear-gradient(135deg, hsl(225 20% 10%), hsl(225 20% 8%));
-    --gradient-glow: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), hsl(210 100% 56% / 0.06), transparent 40%);
-
-    --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
-    --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.4);
-    --shadow-lg: 0 8px 30px hsl(0 0% 0% / 0.5);
-    --shadow-glow: 0 0 20px hsl(210 100% 56% / 0.15);
-
-    --sidebar-background: 225 20% 8%;
-    --sidebar-foreground: 210 30% 80%;
-    --sidebar-primary: 210 100% 56%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 15% 15%;
-    --sidebar-accent-foreground: 210 30% 80%;
-    --sidebar-border: 225 15% 16%;
-    --sidebar-ring: 210 100% 56%;
+    /* Elevation — reserved for the single hero element per screen. */
+    --shadow-hero: 0 1px 2px hsl(230 13% 9% / 0.04), 0 8px 24px hsl(230 13% 9% / 0.06);
+    --shadow-pop: 0 1px 2px hsl(230 13% 9% / 0.05), 0 12px 32px hsl(230 13% 9% / 0.10);
 
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
     --font-display: 'Inter', system-ui, -apple-system, sans-serif;
-    --grid-line: 222 30% 15%;
-    --surface-glass: 222 40% 8%;
-  }
 
+    /* Sidebar tokens kept for shadcn components that reference them. */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 230 13% 20%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 13% 96%;
+    --sidebar-accent-foreground: 230 13% 12%;
+    --sidebar-border: 48 8% 91%;
+    --sidebar-ring: 221 83% 53%;
+  }
 }
 
 @layer base {
@@ -78,113 +83,96 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Tabular figures for all monospace numeric content. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, .tracking-tightish {
+    letter-spacing: -0.02em;
   }
 
   ::selection {
-    background: hsl(210 100% 56% / 0.3);
-    color: hsl(0 0% 100%);
+    background: hsl(var(--primary) / 0.18);
+    color: hsl(var(--foreground));
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(225 15% 25%);
-    border-radius: 3px;
+    background: hsl(230 5% 82%);
+    border-radius: 6px;
+    border: 3px solid hsl(var(--background));
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(225 15% 35%);
+    background: hsl(230 5% 72%);
   }
 }
 
 @layer components {
+  /* Default surface: white card on off-white base, hairline border, flat. */
+  .surface {
+    @apply rounded-xl border border-border bg-card;
+  }
+
+  /* Interactive surface: hairline darkens + subtle lift on hover, never glow. */
+  .surface-interactive {
+    @apply surface transition-all duration-200;
+  }
+  .surface-interactive:hover {
+    border-color: hsl(230 6% 84%);
+    transform: translateY(-2px);
+  }
+
+  /* The ONE elevated element per screen (usually the chart hero). */
+  .elevated {
+    @apply rounded-xl border border-border bg-card;
+    box-shadow: var(--shadow-hero);
+  }
+
+  /* Legacy aliases kept so untouched markup still renders correctly. */
   .glass-card {
-    @apply rounded-xl border border-border;
-    background: var(--gradient-card);
-    backdrop-filter: blur(12px);
+    @apply surface;
   }
-
   .glass-card-hover {
-    @apply glass-card transition-all duration-300;
+    @apply surface-interactive;
   }
-  .glass-card-hover:hover {
-    border-color: hsl(var(--primary) / 0.3);
-    box-shadow: var(--shadow-glow);
-  }
-
-  .gradient-text {
-    background: var(--gradient-primary);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  .glass-surface {
+    @apply bg-card/80 border border-border;
+    backdrop-filter: saturate(1.1) blur(6px);
   }
 
+  .gradient-text,
   .text-gradient-brand {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
-  }
-
-  .glass-surface {
-    background: hsl(var(--surface-glass) / 0.6);
-    backdrop-filter: blur(12px);
-    border: 1px solid hsl(var(--border) / 0.5);
-  }
-
-  .grid-overlay {
-    background-image:
-      linear-gradient(hsl(var(--grid-line) / 0.3) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--grid-line) / 0.3) 1px, transparent 1px);
-    background-size: 60px 60px;
-  }
-
-  .grid-overlay-animated {
-    animation: grid-drift 22s linear infinite;
-    will-change: transform;
-  }
-
-  .bg-gradient-animated {
-    background-size: 200% 200%;
-    animation: gradient-drift 14s ease-in-out infinite;
-  }
-
-  .glow-border {
-    position: relative;
-  }
-  .glow-border::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    background: var(--gradient-primary);
-    z-index: -1;
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-  .glow-border:hover::after {
-    opacity: 0.5;
+    background-image: linear-gradient(135deg, hsl(var(--primary)), hsl(152 70% 40%));
   }
 
   .skeleton-shimmer {
     @apply rounded-md;
     background: linear-gradient(
       90deg,
-      hsl(225 15% 13%) 0%,
-      hsl(225 15% 18%) 50%,
-      hsl(225 15% 13%) 100%
+      hsl(40 10% 94%) 0%,
+      hsl(40 10% 97%) 50%,
+      hsl(40 10% 94%) 100%
     );
     background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    animation: shimmer 1.4s ease-in-out infinite;
   }
 
   .ticker-badge {
-    @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono font-semibold;
-    background: hsl(var(--primary) / 0.12);
-    color: hsl(var(--primary));
-    border: 1px solid hsl(var(--primary) / 0.2);
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-medium;
+    background: hsl(var(--secondary));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
   }
 
   .kpi-positive {
@@ -193,6 +181,11 @@
   .kpi-negative {
     color: hsl(var(--destructive));
   }
+
+  /* Metadata label — small caps, muted. */
+  .label-caps {
+    @apply text-[11px] font-medium uppercase tracking-wider text-muted-foreground;
+  }
 }
 
 @keyframes shimmer {
@@ -200,24 +193,7 @@
   100% { background-position: -200% 0; }
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 hsl(210 100% 56% / 0.2); }
-  50% { box-shadow: 0 0 20px 4px hsl(210 100% 56% / 0.15); }
-}
-
-@keyframes grid-drift {
-  0% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(-30px, -20px, 0); }
-  100% { transform: translate3d(-60px, -40px, 0); }
-}
-
-@keyframes gradient-drift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
