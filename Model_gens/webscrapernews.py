@@ -1,28 +1,19 @@
 import feedparser
-import re
 import requests
 import time
 
-
-def _clean_for_model(text: str) -> str:
-    """
-    Clean text similar to the tweet-cleaning used by the sentiment model.
-    Keeps only lowercase letters/spaces (removes punctuation/digits), removes URLs.
-    """
-    text = str(text).lower()
-    text = re.sub(r"http\\S+", "", text)
-    # Remove any HTML tags that may appear in RSS summaries.
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"[^a-z\\s]", " ", text)
-    text = re.sub(r"\\s+", " ", text)
-    return text.strip()
+try:
+    from Model_gens.text_cleaning import clean_text_for_model, fix_mojibake
+except ImportError:  # when run as a standalone script (cwd on sys.path)
+    from text_cleaning import clean_text_for_model, fix_mojibake
 
 
 def _clean_for_display(text: str, max_len: int = 220) -> str:
     """
-    Lightweight cleanup for human-readable output.
+    Lightweight cleanup for human-readable output. Repairs mojibake and collapses
+    real newlines so the UI does not show garbled or multi-line snippets.
     """
-    text = str(text).replace("\\n", " ").strip()
+    text = fix_mojibake(str(text)).replace("\n", " ").strip()
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
@@ -70,7 +61,7 @@ def scrape_google_news_rss(stock_name: str, max_articles: int = 10) -> list[dict
                 "title": _clean_for_display(title),
                 "summary": _clean_for_display(summary),
                 "link": link,
-                "text_for_model": _clean_for_model(combined_text),
+                "text_for_model": clean_text_for_model(combined_text),
             }
         )
 

@@ -238,9 +238,6 @@ def _startup_readiness_checks() -> None:
         MODEL_DIR / "stock_score_regression.pkl",
         MODEL_DIR / "sentiment_logreg.pkl",
         MODEL_DIR / "tfidf_vectorizer.pkl",
-        MODEL_DIR / "keras_stockfundamentalsscorer.h5",
-        MODEL_DIR / "keras_X_scaler.pkl",
-        MODEL_DIR / "keras_Y_scaler.pkl",
     ]
     missing = [str(p) for p in required_paths if not p.exists()]
     if missing:

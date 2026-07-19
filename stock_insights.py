@@ -11,6 +11,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from Model_gens.text_cleaning import clean_text_for_model, fix_mojibake
+
 # Downgrade sklearn noise: estimators were fit on named DataFrames, but some code paths
 # (and sklearn internals on certain versions) still pass ndarray and trigger this warning.
 warnings.filterwarnings(
@@ -40,22 +42,6 @@ FEATURE_COLS = [
     "Price/Sales",
     "Price/Book",
 ]
-
-
-def _clean_tweet(text: str) -> str:
-    """
-    Tweet cleaning logic copied to match Model_gens/sentiment_logreg.py.
-    """
-    import re
-
-    text = str(text).lower()
-    text = re.sub(r"http\\S+|www\\S+", "", text)
-    text = re.sub(r"@\\w+", "", text)
-    text = re.sub(r"#", "", text)
-    text = re.sub(r"&amp;", "and", text)
-    text = re.sub(r"[^a-z\\s]", "", text)
-    text = re.sub(r"\\s+", " ", text).strip()
-    return text
 
 
 def _is_symbol_like(query: str) -> bool:
@@ -235,7 +221,6 @@ def _calibrate_final_score(raw_score: float, overall_confidence: float) -> float
 
 def _maybe_train_models(train_missing: bool) -> None:
     """
-    Training is expensive for the Keras model (custom_nn_scorer.py uses 500 epochs).
     By default, we do not train; we only train if --train-missing is provided.
     """
     required_artifacts = {
@@ -244,9 +229,6 @@ def _maybe_train_models(train_missing: bool) -> None:
         "stock_score_regression.pkl": ["stockscoreregression.py"],
         "sentiment_logreg.pkl": ["sentiment_logreg.py"],
         "tfidf_vectorizer.pkl": ["sentiment_logreg.py"],
-        "keras_stockfundamentalsscorer.h5": ["custom_nn_scorer.py"],
-        "keras_X_scaler.pkl": ["custom_nn_scorer.py"],
-        "keras_Y_scaler.pkl": ["custom_nn_scorer.py"],
     }
 
     missing_by_script: dict[str, list[str]] = {}
@@ -266,7 +248,7 @@ def _maybe_train_models(train_missing: bool) -> None:
         raise FileNotFoundError(
             "Model artifacts are missing and --train-missing was not provided. "
             f"Missing: {', '.join(missing)}. "
-            "Run with --train-missing to generate them (Keras training is very slow)."
+            "Run with --train-missing to generate them."
         )
 
     for script, missing_artifacts in missing_by_script.items():
@@ -285,25 +267,12 @@ def _load_models():
     sentiment_model = joblib.load(MODEL_DIR / "sentiment_logreg.pkl")
     vectorizer = joblib.load(MODEL_DIR / "tfidf_vectorizer.pkl")
 
-    keras_model = None
-    keras_X_scaler = joblib.load(MODEL_DIR / "keras_X_scaler.pkl")
-    keras_Y_scaler = joblib.load(MODEL_DIR / "keras_Y_scaler.pkl")
-    # Import tensorflow lazily so the program can still run without Keras if artifacts are absent.
-    from tensorflow.keras.models import load_model  # type: ignore
-
-    # Keras 3+ can fail when loading legacy H5 models that include compile config.
-    # We only need `predict()`, so skip deserializing loss/metrics.
-    keras_model = load_model(MODEL_DIR / "keras_stockfundamentalsscorer.h5", compile=False)
-
     return {
         "fundamentals_clf": fundamentals_clf,
         "fundamentals_rfr": fundamentals_rfr,
         "fundamentals_xgb": fundamentals_xgb,
         "sentiment_model": sentiment_model,
         "vectorizer": vectorizer,
-        "keras_model": keras_model,
-        "keras_X_scaler": keras_X_scaler,
-        "keras_Y_scaler": keras_Y_scaler,
     }
 
 
@@ -329,11 +298,6 @@ def _predict_fundamentals(models: dict, financials_row: pd.Series) -> dict:
     rfr_score = float(models["fundamentals_rfr"].predict(X_df)[0])
     xgb_score = float(models["fundamentals_xgb"].predict(X_df)[0])
 
-    # Keras NN: works on scaled X; Y_scaled is inverted back to [0,1].
-    X_scaled = models["keras_X_scaler"].transform(X_df)
-    y_scaled_pred = float(models["keras_model"].predict(X_scaled, verbose=0)[0][0])
-    y_pred = float(models["keras_Y_scaler"].inverse_transform(np.array([[y_scaled_pred]]))[0][0])
-
     # Keep everything in [0,1] so the ensemble is comparable.
     def clip_01(v: float) -> float:
         return float(min(1.0, max(0.0, v)))
@@ -341,16 +305,14 @@ def _predict_fundamentals(models: dict, financials_row: pd.Series) -> dict:
     clf_score = clip_01(clf_score)
     rfr_score = clip_01(rfr_score)
     xgb_score = clip_01(xgb_score)
-    y_pred = clip_01(y_pred)
 
-    fundamentals_score = float(np.mean([clf_score, rfr_score, xgb_score, y_pred]))
+    fundamentals_score = float(np.mean([clf_score, rfr_score, xgb_score]))
     return {
         "fundamentals_score": fundamentals_score,
         "model_scores": {
             "fundamentals_classifier_p1": clf_score,
             "random_forest_regressor": rfr_score,
             "xgb_regressor": xgb_score,
-            "keras_nn_regressor": y_pred,
         },
     }
 
@@ -375,7 +337,7 @@ def _predict_sentiment(models: dict, tweets: pd.DataFrame, top_n_examples: int) 
     vectorizer = models["vectorizer"]
     sentiment_model = models["sentiment_model"]
 
-    cleaned = tweets["Tweet"].apply(_clean_tweet)
+    cleaned = tweets["Tweet"].apply(clean_text_for_model)
     X_tfidf = vectorizer.transform(cleaned)
     proba = sentiment_model.predict_proba(X_tfidf)
     if 1 in sentiment_model.classes_:
@@ -401,7 +363,7 @@ def _predict_sentiment(models: dict, tweets: pd.DataFrame, top_n_examples: int) 
     def take_examples(order_idx: np.ndarray) -> list[str]:
         examples = []
         for i in order_idx[:top_n_examples]:
-            examples.append(_truncate(tweets.iloc[i]["Tweet"], 160))
+            examples.append(_truncate(fix_mojibake(tweets.iloc[i]["Tweet"]), 160))
         return examples
 
     return {
@@ -774,6 +736,7 @@ def get_insights(
             "live_news_attempted": live_news_attempted,
             "live_news_item_count": live_news_item_count,
             "news_query_used": news_query_used,
+            "sentiment_weight": sentiment_weight,
         },
     }
 
@@ -789,7 +752,7 @@ def main():
     parser.add_argument(
         "--train-missing",
         action="store_true",
-        help="If model artifacts are missing, train them (can be slow, especially Keras).",
+        help="If model artifacts are missing, train them.",
     )
     parser.add_argument(
         "--top-tweets",

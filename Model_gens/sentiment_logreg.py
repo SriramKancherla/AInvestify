@@ -1,12 +1,17 @@
 import pandas as pd
 import numpy as np
-import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 import csv
 import joblib
+from pathlib import Path
+
+from text_cleaning import clean_text_for_model
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+DATASETS_DIR = _SCRIPT_DIR.parent / "datasets"
 
 
 positive_words = {
@@ -92,16 +97,6 @@ negative_words = {
 
 
 
-def clean_tweet(text):
-    text = str(text).lower()
-    text = re.sub(r"http\S+|www\S+", "", text)
-    text = re.sub(r"@\w+", "", text)
-    text = re.sub(r"#", "", text)
-    text = re.sub(r"&amp;", "and", text)
-    text = re.sub(r"[^a-z\s]", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
 def auto_label(text):
     score=0
     for word in text.split():
@@ -123,12 +118,13 @@ def auto_label(text):
 vectorizer=TfidfVectorizer(max_features=5000,stop_words='english',ngram_range=(1,3))
 
 
-data=pd.read_csv('../datasets/stock_tweets.csv',sep='\t',        
+data=pd.read_csv(DATASETS_DIR / "stock_tweets.csv",sep='\t',        
     engine='python',
     quoting=csv.QUOTE_NONE,   
     on_bad_lines='skip',)
 
-data['Tweet']=data['Tweet'].apply(clean_tweet)
+data = data.dropna(subset=['Tweet'])
+data['Tweet']=data['Tweet'].apply(clean_text_for_model)
 data['label']=data['Tweet'].apply(auto_label)
 data = data.dropna(subset=['label'])
 
@@ -139,5 +135,5 @@ X=vectorizer.fit_transform(X)
 
 model=LogisticRegression(max_iter=1000)
 model.fit(X,Y)
-joblib.dump(model,"sentiment_logreg.pkl")
-joblib.dump(vectorizer, "tfidf_vectorizer.pkl")
+joblib.dump(model, _SCRIPT_DIR / "sentiment_logreg.pkl")
+joblib.dump(vectorizer, _SCRIPT_DIR / "tfidf_vectorizer.pkl")

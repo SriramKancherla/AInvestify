@@ -147,6 +147,45 @@ def test_protected_route_with_auth_header(monkeypatch) -> None:
     assert "holdings" in resp.json()
 
 
+def test_sync_push_requires_auth(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    # Valid body so the request reaches the auth check (not a 422 body-validation error).
+    resp = client.post("/api/sync/push", json={"token": "sync-token", "state": {}})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error"]["code"] == "unauthorized"
+
+
+def test_sync_pull_requires_auth(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    resp = client.get("/api/sync/pull/sync-token")
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error"]["code"] == "unauthorized"
+
+
+def test_sync_push_with_auth_header(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    monkeypatch.setattr(
+        app_module, "sync_push", lambda token, state: {"ok": True, "token": token}
+    )
+    resp = client.post(
+        "/api/sync/push",
+        json={"token": "sync-token", "state": {"watchlists": []}},
+        headers=_auth_headers(),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_sync_pull_with_auth_header(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    monkeypatch.setattr(
+        app_module, "sync_pull", lambda token: {"token": token, "state": {}}
+    )
+    resp = client.get("/api/sync/pull/sync-token", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert resp.json()["token"] == "sync-token"
+
+
 def test_startup_readiness_failure(monkeypatch) -> None:
     from contextlib import asynccontextmanager
 

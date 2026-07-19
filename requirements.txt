@@ -3,7 +3,6 @@ numpy==2.4.4
 scikit-learn==1.8.0
 joblib==1.5.3
 xgboost==3.2.0
-tensorflow==2.21.0
 feedparser==6.0.12
 fastapi==0.135.2
 uvicorn[standard]==0.42.0
