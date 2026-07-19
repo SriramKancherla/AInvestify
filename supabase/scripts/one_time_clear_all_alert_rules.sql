@@ -1,4 +1,0 @@
--- Run manually in Supabase SQL Editor (once) to remove every stored price-alert row for all users.
--- Use only if you want a global reset after changing alert behavior.
---
--- DELETE FROM public.alert_rules;

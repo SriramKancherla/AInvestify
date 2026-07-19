@@ -39,12 +39,14 @@ services:
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
       # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
-      # - key: SUPABASE_URL
-      #   sync: false
-      # - key: SUPABASE_SERVICE_ROLE_KEY
-      #   sync: false
-      # - key: SUPABASE_ANON_KEY
-      #   sync: false
+      # Kept as active `sync: false` entries (not commented) so Blueprint apply surfaces them
+      # as required fields at setup. Values are entered in the dashboard, never stored in git.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
