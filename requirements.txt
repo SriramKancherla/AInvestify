@@ -17,6 +17,8 @@ weasyprint==63.1
 PyJWT==2.10.1
 cryptography>=42.0.0
 matplotlib
+# SEC fetch modules import this at load time. The forecast needs those modules.
+tqdm
 # Use `tensorflow` (not `tensorflow-cpu`) — tensorflow-cpu has no macOS arm64 wheels.
 tensorflow
 
