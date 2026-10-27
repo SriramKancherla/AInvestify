@@ -502,6 +502,76 @@ def _fetch_live_news_items(news_query: str, max_articles: int) -> list[dict]:
         return []
 
 
+def yahoo_quote_fields(symbol: str) -> dict:
+    """Live Yahoo fields for one ticker.
+
+    `Ticker.info` reads quoteSummary. That call is often refused from a cloud
+    host, which is why Render was showing the old training row. The v7 quote
+    and fast_info use the same path as the price chart, which does respond.
+    A value already present on `info` is kept, so a working local lookup does
+    not change.
+    """
+    import yfinance as yf  # type: ignore
+
+    sym = (symbol or "").upper().replace(".", "-")
+    ticker = yf.Ticker(sym)
+    info: dict = {}
+    try:
+        info = dict(ticker.info or {})
+    except Exception:
+        info = {}
+
+    quote: dict = {}
+    try:
+        extra = ticker._quote._fetch_additional_info()
+        rows = ((extra or {}).get("quoteResponse") or {}).get("result") or []
+        if rows and isinstance(rows[0], dict):
+            quote = rows[0]
+    except Exception:
+        quote = {}
+
+    fast: dict = {}
+    try:
+        fast = dict(ticker.fast_info)
+    except Exception:
+        fast = {}
+
+    def first(*values):
+        for value in values:
+            if value is None:
+                continue
+            if isinstance(value, str):
+                return value.strip() or None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return value
+            if number == number:
+                return value
+        return None
+
+    merged = dict(info)
+    fills = {
+        "currentPrice": first(info.get("currentPrice"), info.get("regularMarketPrice"), quote.get("regularMarketPrice"), fast.get("lastPrice")),
+        "regularMarketPrice": first(info.get("regularMarketPrice"), quote.get("regularMarketPrice"), fast.get("lastPrice")),
+        "marketCap": first(info.get("marketCap"), quote.get("marketCap"), fast.get("marketCap")),
+        "trailingPE": first(info.get("trailingPE"), quote.get("trailingPE")),
+        "priceToBook": first(info.get("priceToBook"), quote.get("priceToBook")),
+        "fiftyTwoWeekHigh": first(info.get("fiftyTwoWeekHigh"), quote.get("fiftyTwoWeekHigh"), fast.get("yearHigh")),
+        "fiftyTwoWeekLow": first(info.get("fiftyTwoWeekLow"), quote.get("fiftyTwoWeekLow"), fast.get("yearLow")),
+        "dividendYield": first(info.get("dividendYield"), quote.get("dividendYield")),
+        "bookValue": first(info.get("bookValue"), quote.get("bookValue")),
+        "priceToSalesTrailing12Months": first(info.get("priceToSalesTrailing12Months"), quote.get("priceToSalesTrailing12Months")),
+        "ebitda": first(info.get("ebitda"), quote.get("ebitda")),
+        "longName": first(info.get("longName"), quote.get("longName"), quote.get("shortName")),
+        "shortName": first(info.get("shortName"), quote.get("shortName")),
+    }
+    for key, value in fills.items():
+        if merged.get(key) is None and value is not None:
+            merged[key] = value
+    return merged
+
+
 def _fetch_live_fundamentals_row(symbol: str, financials: pd.DataFrame) -> tuple[pd.Series | None, dict]:
     """
     Fetch fundamentals from Yahoo Finance and map to model feature columns.
@@ -513,8 +583,7 @@ def _fetch_live_fundamentals_row(symbol: str, financials: pd.DataFrame) -> tuple
         return None, {"source": "none", "error": f"yfinance import failed: {e}"}
 
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info or {}
+        info = yahoo_quote_fields(symbol)
     except Exception as e:
         return None, {"source": "none", "error": f"yfinance fetch failed: {e}"}
 

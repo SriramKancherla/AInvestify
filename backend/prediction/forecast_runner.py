@@ -1003,14 +1003,34 @@ def _fetch_live_history(
     # history (252 × 5 = 1260 bars) and for the cone's 2-year long-run variance.
     # Stocks with a shorter listing history simply get everything available.
     start = end - timedelta(days=2000)
-    hist = yf.download(
-        sym,
-        start=start.isoformat(),
-        end=(end + timedelta(days=1)).isoformat(),
-        progress=False,
-        auto_adjust=auto_adjust,
-        threads=False,
-    )
+    start_s = start.isoformat()
+    end_s = (end + timedelta(days=1)).isoformat()
+    # Ticker.history is the call the chart and fundamentals already use. On a
+    # datacenter address, yf.download often returns an empty frame while
+    # Ticker.history still returns the bars.
+    hist = None
+    try:
+        hist = yf.Ticker(sym).history(
+            start=start_s,
+            end=end_s,
+            interval="1d",
+            auto_adjust=auto_adjust,
+            actions=False,
+        )
+    except Exception:
+        hist = None
+    if hist is None or hist.empty:
+        try:
+            hist = yf.download(
+                sym,
+                start=start_s,
+                end=end_s,
+                progress=False,
+                auto_adjust=auto_adjust,
+                threads=False,
+            )
+        except Exception:
+            hist = None
     if hist is None or hist.empty:
         raise ValueError(f"No price history available for {ticker.upper()}.")
 
@@ -1026,7 +1046,10 @@ def _fetch_live_history(
     hist = hist.reset_index()
     date_col = "Date" if "Date" in hist.columns else hist.columns[0]
     hist = hist.rename(columns={date_col: "Date"})
-    hist["Date"] = pd.to_datetime(hist["Date"]).dt.tz_localize(None)
+    dates = pd.to_datetime(hist["Date"])
+    if getattr(dates.dt, "tz", None) is not None:
+        dates = dates.dt.tz_convert("UTC").dt.tz_localize(None)
+    hist["Date"] = dates
 
     if len(hist) < min_bars:
         raise ValueError(

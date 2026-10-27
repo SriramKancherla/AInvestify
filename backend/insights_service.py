@@ -16,7 +16,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from backend.scoremodel.webscrapernews import scrape_google_news_rss
 from backend.chat_style_service import rewrite_chat_reply
 from backend.shared_utils import cached_call, request_with_retry
-from backend.scoremodel.engine import DATA_DIR, MODEL_DIR, get_insights
+from backend.scoremodel.engine import DATA_DIR, MODEL_DIR, get_insights, yahoo_quote_fields
 
 
 NewsSource = Literal["auto", "dataset", "live"]
@@ -322,20 +322,22 @@ def get_fundamentals_data(ticker: str) -> dict:
         hist = _live_history(ticker.upper(), period="5d", interval="1d")
         live_last_close = float(hist["Close"].iloc[-1])
         price_source = "live_yfinance"
-        t = yf.Ticker(ticker)
-        info = t.info or {}
     except Exception as e:
         info_error = str(e)
-        try:
-            t = yf.Ticker(ticker)
-            info = t.info or {}
-            live_price = info.get("currentPrice") or info.get("regularMarketPrice")
-            if live_price is not None:
+    try:
+        info = yahoo_quote_fields(ticker)
+    except Exception as e:
+        info_error = f"{info_error}; {e}" if info_error else str(e)
+        info = {}
+    if live_last_close is None:
+        live_price = info.get("currentPrice") or info.get("regularMarketPrice")
+        if live_price is not None:
+            try:
                 live_last_close = float(live_price)
                 price_source = "live_yfinance_info"
                 info_error = None
-        except Exception as e2:
-            info_error = f"{info_error}; {e2}" if info_error else str(e2)
+            except (TypeError, ValueError):
+                pass
 
     # Dataset fallback to avoid empty fundamentals when live provider misses fields.
     dataset_row = None
@@ -347,10 +349,18 @@ def get_fundamentals_data(ticker: str) -> dict:
     except Exception:
         dataset_row = None
 
+    # A live quote plus the old training row produces nonsense, such as a
+    # $346 price next to a $180 52-week high. Fill gaps from that file only
+    # when Yahoo did not answer at all.
+    live_quote = any(
+        info.get(key) is not None
+        for key in ("marketCap", "fiftyTwoWeekHigh", "trailingPE", "bookValue")
+    )
+
     def _pick(primary, dataset_key: str):
         if primary is not None:
             return primary
-        if dataset_row is None:
+        if live_quote or dataset_row is None:
             return None
         try:
             v = dataset_row.get(dataset_key)

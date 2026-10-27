@@ -13,7 +13,20 @@ function CreatorsBlock({ emeraldAccent }: { emeraldAccent: boolean }) {
     : "text-primary hover:text-primary/90 hover:underline underline-offset-2";
 
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 sm:gap-8">
+      <div className="space-y-2 text-left">
+        <p className={cn("text-sm font-medium", emeraldAccent ? "text-foreground/95" : "text-foreground")}>Valluri Teja</p>
+        <p className={cn("text-xs", emeraldAccent ? "text-muted-foreground/90" : "text-muted-foreground")}>
+          <a href="mailto:Valluri.teja.in@gmail.com" className={linkClass}>
+            Valluri.teja.in@gmail.com
+          </a>
+        </p>
+        <p className="text-xs">
+          <a href="https://www.linkedin.com/in/valluri-teja/" target="_blank" rel="noopener noreferrer" className={linkClass}>
+            LinkedIn
+          </a>
+        </p>
+      </div>
       <div className="space-y-2 text-left">
         <p className={cn("text-sm font-medium", emeraldAccent ? "text-foreground/95" : "text-foreground")}>Sriram Kancherla</p>
         <p className={cn("text-xs", emeraldAccent ? "text-muted-foreground/90" : "text-muted-foreground")}>
