@@ -7,6 +7,8 @@ from typing import Any
 
 from fpdf import FPDF
 
+from backend import report_helpers as rh
+
 _LOG = logging.getLogger("ainvestify.report")
 
 FOOTER_LINE = "AInvestify · Experimental research summary — not financial advice"
@@ -100,7 +102,7 @@ def _fundamentals_rows(stock: dict[str, Any]) -> list[tuple[str, str]]:
     fund = stock.get("fundamentals")
     if not isinstance(fund, dict) or not fund:
         return []
-    return [(str(k), str(v)) for k, v in fund.items()]
+    return [(str(k), str(v)) for k, v in fund.items() if str(k) not in rh.METRIC_SKIP]
 
 
 def _kpi_triple(stock: dict[str, Any]) -> tuple[str, str, str]:
@@ -127,15 +129,12 @@ def build_report_html(payload: dict[str, Any]) -> str:
         )
         return f'<table class="kv">{cells}</table>'
 
-    def stock_section(title: str, stock: dict[str, Any], first: bool) -> str:
+    def stock_section(stock: dict[str, Any], *, first: bool, is_compare: bool = False) -> str:
         ticker = _esc(stock.get("ticker") or "—")
         company = _esc(stock.get("company_name") or "—")
         rec = stock.get("recommendation")
         rec_s = _esc(rec)
         tone = _tone_from_recommendation(str(rec) if rec else None)
-        sent_label = _esc(stock.get("sentiment_label") or "—")
-        sent_dot = _sentiment_dot(str(stock.get("sentiment_label")))
-        final_v, fund_v, sent_v = _kpi_triple(stock)
 
         price = stock.get("current_price")
         chg = stock.get("change_percent")
@@ -148,10 +147,18 @@ def build_report_html(payload: dict[str, Any]) -> str:
             rng = f'{_esc(lo if lo is not None else "—")} – {_esc(hi if hi is not None else "—")}'
 
         rec_block = ""
-        if rec:
-            rec_block = (
-                f'<div class="callout {tone}"><p class="callout-label">Model view</p>'
-                f'<p class="callout-text">{rec_s}</p></div>'
+        compare_head = ""
+        if is_compare:
+            if rec:
+                rec_block = (
+                    f'<div class="callout {tone}"><p class="callout-label">Model view</p>'
+                    f'<p class="callout-text">{rec_s}</p></div>'
+                )
+            compare_head = (
+                f'<div class="sec-head"><span class="company">{company}</span>'
+                f'<span class="tick">{ticker}</span></div>'
+                + rh.hero_cards_html(_esc, stock)
+                + rec_block
             )
 
         activity = kv_table(
@@ -191,21 +198,10 @@ def build_report_html(payload: dict[str, Any]) -> str:
                 more = f'<p class="note">+{extra} more — see the full list in-app.</p>'
             news_html = "<h3>Recent headlines</h3>" + '<div class="hl-list">' + "".join(parts) + "</div>" + more
 
-        # First (primary) section follows the cover on page 1 — no forced break.
-        cls = "stock-block" if first else "stock-block page-break"
+        cls = "stock-block" if first and not is_compare else "stock-block page-break"
         return f"""
         <section class="{cls}">
-          <div class="sec-head">
-            <span class="company">{company}</span>
-            <span class="tick">{ticker}</span>
-          </div>
-          <div class="kpi-row">
-            <div class="kpi"><span class="kpi-label">Final score</span><span class="kpi-val">{_esc(final_v)}</span></div>
-            <div class="kpi"><span class="kpi-label">Fundamentals</span><span class="kpi-val">{_esc(fund_v)}</span></div>
-            <div class="kpi"><span class="kpi-label">Sentiment</span><span class="kpi-val">{_esc(sent_v)}</span>
-              <span class="sent"><span class="dot {sent_dot}"></span>{sent_label}</span></div>
-          </div>
-          {rec_block}
+          {compare_head}
           <h3>Price &amp; activity</h3>
           {activity}
           {fund_html}
@@ -214,11 +210,13 @@ def build_report_html(payload: dict[str, Any]) -> str:
         """
 
     if primary:
-        stocks_html = stock_section("Primary holding", primary, first=True)
+        cover_html = rh.premium_cover_html(_esc, primary, generated, NOTICE_SHORT)
+        exec_html = rh.exec_summary_html(_esc, primary, _sentiment_dot)
+        stocks_html = cover_html + exec_html + stock_section(primary, first=True, is_compare=False)
     else:
-        stocks_html = '<section class="stock-block page-break"><p class="muted">No primary stock was included in this export.</p></section>'
+        stocks_html = '<section class="stock-block"><p class="muted">No primary stock was included in this export.</p></section>'
     if compare:
-        stocks_html += stock_section("Comparison holding", compare, first=False)
+        stocks_html += stock_section(compare, first=False, is_compare=True)
 
     port_html = ""
     portfolio = payload.get("portfolio")
@@ -360,6 +358,36 @@ def build_report_html(payload: dict[str, Any]) -> str:
     .disclaimer { font-size: 9.5pt; color: #14151A; line-height: 1.6; }
     .note { font-size: 8.5pt; color: #A1A3AC; margin: 0 0 10px; }
     .muted { color: #6B6D76; }
+
+    /* Institutional cover + executive summary */
+    .stock-hero { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #EAEAE8; }
+    .brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .brand-name { font-size: 11pt; font-weight: 600; color: #14151A; }
+    .brand-when { margin-left: auto; font-size: 8pt; color: #A1A3AC; font-family: "DejaVu Sans Mono", monospace; }
+    .hero-title { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; }
+    .company-logo { width: 40px; height: 40px; border-radius: 50%; object-fit: contain; background: #fff; border: 1px solid #EAEAE8; flex-shrink: 0; }
+    .hero-company { margin: 0; font-size: 22pt; font-weight: 500; letter-spacing: -0.02em; color: #14151A; }
+    .hero-price-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+    .hero-price { font-size: 28pt; font-weight: 600; font-family: "DejaVu Sans Mono", monospace; color: #14151A; }
+    .hero-chg { font-size: 12pt; font-family: "DejaVu Sans Mono", monospace; }
+    .chg-pos { color: #0F9D58; } .chg-neg { color: #D93025; } .chg-neutral { color: #6B6D76; }
+    .spark-wrap { margin: 8px 0 12px; }
+  .hero-cards { display: flex; gap: 10px; margin: 12px 0; }
+    .hero-card { flex: 1; border: 1px solid #EAEAE8; border-radius: 10px; padding: 12px; background: #fff; }
+    .hero-label { display: block; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.08em; color: #A1A3AC; }
+    .hero-val { display: block; font-size: 15pt; font-weight: 600; color: #14151A; margin-top: 4px; font-family: "DejaVu Sans Mono", monospace; }
+    .hero-val-text { font-size: 11pt; font-family: "Helvetica Neue", Helvetica, sans-serif; font-weight: 600; }
+    .hero-val-pct { font-size: 18pt; }
+    .hero-suffix { font-size: 9pt; color: #A1A3AC; font-weight: 500; }
+    .model-view-line { margin: 8px 0 4px; font-size: 10pt; color: #14151A; }
+    .mv-label { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.08em; color: #A1A3AC; margin-right: 8px; }
+    .footnote { font-size: 8pt; color: #A1A3AC; margin: 6px 0 0; }
+    .exec-summary { margin: 16px 0 20px; }
+    .exec-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .exec-grid .hero-card { flex: 1 1 30%; min-width: 90px; }
+    .exec-val { font-size: 12pt; }
+    .signals { margin: 0; padding-left: 18px; font-size: 9.5pt; color: #14151A; }
+    .signals li { margin-bottom: 4px; }
     .page-break { break-before: page; }
     """
 
@@ -371,18 +399,6 @@ def build_report_html(payload: dict[str, Any]) -> str:
   <style>{css}</style>
 </head>
 <body>
-  <section class="cover">
-    <div class="cover-top">
-      <span class="mark">AI</span>
-      <div class="cover-id">
-        <h1>AInvestify</h1>
-        <p class="tag">Equity insight report</p>
-        <div class="rule"></div>
-        <p class="when">Generated {_esc(generated)}</p>
-      </div>
-    </div>
-    <div class="notice">{_esc(NOTICE_SHORT)}</div>
-  </section>
   {stocks_html}
   {port_html}
   {events_html}
@@ -422,26 +438,117 @@ def _rule(pdf: FPDF, width: float = 40.0) -> None:
     pdf.ln(4)
 
 
-def _write_stock_sections(pdf: FPDF, title: str, stock: dict[str, Any]) -> None:
-    ticker = stock.get("ticker") or "—"
-    company = stock.get("company_name") or "—"
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(*_INK)
-    pdf.multi_cell(0, 8, _safe_pdf_text(f"{company}  [{ticker}]"))
-    pdf.set_draw_color(*_BORDER)
-    pdf.set_line_width(0.2)
-    y = pdf.get_y() + 1
-    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
-    pdf.ln(4)
+def _write_institutional_cover(pdf: FPDF, stock: dict[str, Any], generated: str) -> None:
+    from backend.logo_assets import logo_path
 
-    final_v, fund_v, sent_v = _kpi_triple(stock)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*_INK)
+    pdf.cell(0, 5, _safe_pdf_text(f"AInvestify · Generated {generated}"), ln=True)
+    pdf.ln(2)
+    pdf.set_fill_color(253, 246, 236)
+    pdf.set_draw_color(240, 226, 198)
+    pdf.set_text_color(122, 91, 30)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 5, _safe_pdf_text(NOTICE_SHORT), border=1, fill=True)
+    pdf.set_text_color(*_INK)
+    pdf.set_draw_color(*_BORDER)
+    pdf.ln(4)
+    company = stock.get("company_name") or "—"
+    ticker = stock.get("ticker") or "—"
+    logo = logo_path(ticker)
+    y0 = pdf.get_y()
+    text_x = pdf.l_margin
+    if logo:
+        try:
+            pdf.image(str(logo), x=pdf.l_margin, y=y0, w=10, h=10)
+            text_x = pdf.l_margin + 12
+        except Exception:
+            text_x = pdf.l_margin
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_xy(text_x, y0)
+    pdf.multi_cell(0, 8, _safe_pdf_text(f"{company}  [{ticker}]"))
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_x(pdf.l_margin)
+    price_line = f"{rh.format_price(stock.get('current_price'))}  {rh.format_change(stock.get('change_percent'))}"
+    pdf.multi_cell(0, 7, _safe_pdf_text(price_line))
     pdf.set_font("Helvetica", "", 10)
     pdf.set_x(pdf.l_margin)
     pdf.multi_cell(
-        0, 5,
-        _safe_pdf_text(f"Final score: {final_v}    Fundamentals: {fund_v}    Sentiment: {sent_v} ({stock.get('sentiment_label') or '—'})"),
+        0,
+        5,
+        _safe_pdf_text(
+            f"Outlook: {rh.outlook(stock)}    AI Score: {rh.ai_score_100(stock)}/100    "
+            f"Model confidence: {rh.model_confidence_pct(stock)}"
+        ),
     )
+    rec = stock.get("recommendation")
+    if rec:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _safe_pdf_text(f"Model view: {rec}"))
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(*_FAINT)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 4, _safe_pdf_text(f"* {rh.CONFIDENCE_FOOTNOTE}"))
+    pdf.set_text_color(*_INK)
+    pdf.ln(3)
+    y = pdf.get_y()
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+    pdf.ln(4)
+
+
+def _write_exec_summary(pdf: FPDF, stock: dict[str, Any]) -> None:
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 7, "Executive summary", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_x(pdf.l_margin)
+    agreement, _ = rh.model_agreement(stock)
+    pdf.multi_cell(
+        0,
+        4,
+        _safe_pdf_text(
+            f"Fundamentals: {rh.fundamentals_100(stock)}/100    "
+            f"Sentiment: {rh.sentiment_100(stock)}/100 ({stock.get('sentiment_label') or '—'})    "
+            f"Model agreement: {agreement}"
+        ),
+    )
+    pdf.ln(1)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, 5, _safe_pdf_text(rh.exec_paragraph(stock)))
+    pdf.ln(1)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(0, 5, "KEY SIGNALS", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+    for sig in rh.key_signals(stock):
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 4, _safe_pdf_text(f"- {sig}"))
+    pdf.ln(3)
+
+
+def _write_stock_sections(pdf: FPDF, title: str, stock: dict[str, Any], *, skip_header: bool = False) -> None:
+    if not skip_header:
+        ticker = stock.get("ticker") or "—"
+        company = stock.get("company_name") or "—"
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.set_text_color(*_INK)
+        pdf.multi_cell(0, 8, _safe_pdf_text(f"{company}  [{ticker}]"))
+        pdf.set_draw_color(*_BORDER)
+        pdf.set_line_width(0.2)
+        y = pdf.get_y() + 1
+        pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(
+            0,
+            5,
+            _safe_pdf_text(
+                f"Outlook: {rh.outlook(stock)}    AI Score: {rh.ai_score_100(stock)}/100    "
+                f"Model confidence: {rh.model_confidence_pct(stock)}"
+            ),
+        )
 
     rec = stock.get("recommendation")
     if rec:
@@ -484,6 +591,8 @@ def _write_stock_sections(pdf: FPDF, title: str, stock: dict[str, Any]) -> None:
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(*_INK)
         for k, v in fund.items():
+            if str(k) in rh.METRIC_SKIP:
+                continue
             pdf.set_x(pdf.l_margin)
             pdf.multi_cell(0, 4, _safe_pdf_text(f"- {k}: {v}"))
 
@@ -573,43 +682,11 @@ def _build_report_pdf_fpdf(payload: dict[str, Any]) -> bytes:
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    # Calm light masthead — folded onto the top of page 1 (no dedicated cover page).
-    pdf.ln(2)
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_text_color(*_INK)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 9, "AInvestify", ln=True)
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(*_MUTED)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 6, "Equity insight report", ln=True)
-    pdf.ln(1)
-    _rule(pdf, width=40)
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(*_FAINT)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 5, _safe_pdf_text(f"Generated {generated}"), ln=True)
-
-    # Amber notice box.
-    pdf.ln(3)
-    pdf.set_fill_color(253, 246, 236)
-    pdf.set_draw_color(240, 226, 198)
-    pdf.set_text_color(122, 91, 30)
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 5, _safe_pdf_text(NOTICE_SHORT), border=1, fill=True)
-    pdf.set_text_color(*_INK)
-    pdf.set_draw_color(*_BORDER)
-
-    # Hairline separator under the masthead, then the primary holding on the same page.
-    pdf.ln(4)
-    y = pdf.get_y()
-    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
-    pdf.ln(4)
-
     primary = _stock_block(payload, "selected")
     if primary:
-        _write_stock_sections(pdf, "Primary holding", primary)
+        _write_institutional_cover(pdf, primary, generated)
+        _write_exec_summary(pdf, primary)
+        _write_stock_sections(pdf, "Primary holding", primary, skip_header=True)
     else:
         pdf.set_font("Helvetica", "I", 10)
         pdf.set_x(pdf.l_margin)

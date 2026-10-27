@@ -16,4 +16,10 @@ fpdf2==2.8.7
 weasyprint==63.1
 PyJWT==2.10.1
 cryptography>=42.0.0
+matplotlib
+# Use `tensorflow` (not `tensorflow-cpu`) — tensorflow-cpu has no macOS arm64 wheels.
+tensorflow
 
+# Torch CPU wheels (chart-forecast). Option must sit immediately above `torch`.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch

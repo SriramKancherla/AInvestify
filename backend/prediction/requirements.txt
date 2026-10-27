@@ -1,0 +1,23 @@
+# Full pipeline dependencies for backend/prediction/: data fetching, dataset
+# building, training, hyperparameter search, and inference. Consolidated
+# from prediction_new's own requirements.txt (which only listed the
+# data-fetching deps: yfinance, pandas, numpy, matplotlib, Pillow, tqdm,
+# gdeltdoc, python-dateutil) plus the extra deps its bundled scripts import
+# but that file omitted (torch, scikit-image, optuna).
+#
+# The live API (forecast_runner.py) only needs a subset of this - torch,
+# pandas, numpy, matplotlib - see the root requirements.txt, which installs
+# just that subset for deployment. This file is for running the full
+# pipeline locally (fetching data, building datasets, training, tuning).
+torch
+scikit-image
+optuna
+pandas
+numpy
+matplotlib
+Pillow
+tqdm
+gdeltdoc
+python-dateutil
+yfinance
+requests

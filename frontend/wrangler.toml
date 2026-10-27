@@ -1,0 +1,7 @@
+# Cloudflare Pages. In the dashboard set the root directory to `frontend`.
+# Build command: npm run build
+# Build output directory: dist
+# Environment variable: NODE_VERSION = 20
+name = "ainvestify"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-27"

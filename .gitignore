@@ -17,11 +17,26 @@ uvicorn.log
 # IDE
 .vscode/
 .idea/
+.cursor/
+
+# Not used by the running site. Kept on disk for the review.
+data/reports_and_slides/
+data/old_copies/
+data/paper_scripts/
+data/review_labs/
+data/notes/
+data/chat_style_training/
+data/experiment_outputs/
 
 # Node / frontend
-frontend-2/node_modules/
+frontend/node_modules/
 
 # Python build artifacts
 build/
 dist/
 *.egg-info/
+
+# Chart-forecast pipeline working data (large, regenerable - see backend/prediction/)
+backend/prediction/data/
+backend/prediction/checkpoints/
+backend/prediction/optuna/

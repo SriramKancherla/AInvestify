@@ -1,6 +1,6 @@
 .venv
-frontend-2/node_modules
-frontend-2/dist
+frontend/node_modules
+frontend/dist
 __pycache__
 *.pyc
 *.pyo
@@ -12,3 +12,19 @@ __pycache__
 agent-transcripts
 mcps
 terminals
+backend/prediction/data
+backend/prediction/checkpoints
+backend/prediction/optuna
+
+# Reports, old copies, and experiment dumps are not used by the running site.
+data/reports_and_slides
+data/old_copies
+data/paper_scripts
+data/review_labs
+data/notes
+data/chat_style_training
+data/experiment_outputs
+
+# Never ship local secrets into the image — Render injects real env vars at runtime.
+.env
+.env.*

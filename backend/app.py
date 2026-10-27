@@ -4,6 +4,9 @@ from typing import Any, Literal
 import os
 import logging
 import json
+import socket
+import subprocess
+import sys
 import requests
 from pathlib import Path
 import time
@@ -36,7 +39,6 @@ from backend.feature_services import (
     sync_pull,
     sync_push,
 )
-from backend.supabase_jwt import verify_access_token
 from backend.user_data import (
     add_portfolio_holding,
     delete_portfolio_holding,
@@ -44,11 +46,17 @@ from backend.user_data import (
     list_watchlists,
     upsert_watchlist,
 )
-from stock_insights import DATA_DIR, MODEL_DIR, REPO_ROOT
+from backend.chart_forecast_service import get_chart_forecast_image, get_chart_forecast_status
+from backend.sec_filings_service import (
+    SecConfigError,
+    get_sec_filings,
+    get_sec_filings_status,
+)
+from backend.scoremodel.engine import DATA_DIR, MODEL_DIR, REPO_ROOT
 
 load_dotenv(REPO_ROOT / ".env")
 
-_FRONTEND_DIR = (os.getenv("FRONTEND_DIR") or "frontend-2").strip() or "frontend-2"
+_FRONTEND_DIR = (os.getenv("FRONTEND_DIR") or "frontend").strip() or "frontend"
 _FRONTEND_ROOT = REPO_ROOT / _FRONTEND_DIR
 _FRONTEND_DIST = _FRONTEND_ROOT / "dist"
 _FRONTEND_WEB_ROOT = _FRONTEND_DIST if (_FRONTEND_DIST / "index.html").exists() else _FRONTEND_ROOT
@@ -67,6 +75,26 @@ def _spa_index_response() -> FileResponse | None:
     return FileResponse(path, headers=dict(_SPA_INDEX_CACHE_HEADERS))
 
 
+def _built_frontend_file(rel: str) -> Path | None:
+    """A file from the Vite build, such as /logos/AAPL.png.
+
+    The source tree is not served. A path that climbs out of dist is refused.
+    """
+    root = _FRONTEND_WEB_ROOT.resolve()
+    if root != _FRONTEND_DIST.resolve() or not (_FRONTEND_DIST / "index.html").exists():
+        return None
+    if not rel or rel.startswith(("/", "\\")) or "\\" in rel:
+        return None
+    candidate = (root / rel).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def _parse_cors_allow_origins() -> list[str]:
     raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
     if not raw:
@@ -77,6 +105,21 @@ def _parse_cors_allow_origins() -> list[str]:
             "http://localhost:3000",
         ]
     return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _cors_origin_regex() -> str | None:
+    """Allow the Pages site to call this API in the browser.
+
+    Production is https://<project>.pages.dev. Preview deploys add another
+    label, https://<hash>.<project>.pages.dev. Set CORS_ALLOW_ORIGIN_REGEX
+    to "off" to disable this.
+    """
+    raw = (os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
+    if raw.lower() in {"0", "false", "off", "none"}:
+        return None
+    if not raw:
+        return r"https://([a-z0-9-]+\.)+pages\.dev"
+    return raw
 
 
 def _parse_csv_env_list(key: str, default: list[str]) -> list[str]:
@@ -105,6 +148,55 @@ def _env_int(key: str, default: int) -> int:
         return int(raw)
     except Exception:
         return default
+
+
+def _loopback_port_is_open(port: int) -> bool:
+    """Avoid replacing a reviewer tool the user already started."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.15):
+            return True
+    except OSError:
+        return False
+
+
+def _start_reviewer_labs() -> list[subprocess.Popen]:
+    """Launch the three local reviewer pages alongside the main API."""
+    if not _env_flag("START_REVIEWER_LABS", default=not _is_production()):
+        _LOG.info("Reviewer labs are disabled (START_REVIEWER_LABS=false).")
+        return []
+
+    specs = (
+        ("Backend walkthrough", 8766, ("data/review_labs/presentation_lab/server.py",)),
+        ("Inference pipeline", 8767, ("data/review_labs/reviewer_lab/server.py",)),
+    )
+    started: list[subprocess.Popen] = []
+    env = dict(os.environ, PYTHONUNBUFFERED="1", MPLBACKEND="Agg")
+    for label, port, command in specs:
+        if _loopback_port_is_open(port):
+            _LOG.info("%s already available at http://127.0.0.1:%s", label, port)
+            continue
+        process = subprocess.Popen(
+            [sys.executable, *command],
+            cwd=REPO_ROOT,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        started.append(process)
+        _LOG.info("Started %s at http://127.0.0.1:%s", label, port)
+    return started
+
+
+def _stop_reviewer_labs(processes: list[subprocess.Popen]) -> None:
+    for process in processes:
+        if process.poll() is None:
+            process.terminate()
+    for process in processes:
+        if process.poll() is None:
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
 
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = {}
@@ -206,26 +298,17 @@ def _std_error(status: int, code: str, message: str) -> HTTPException:
     )
 
 
-def _auth_bearer_token(request: Request) -> str:
+def _auth_bearer_token(request: Request) -> str | None:
     auth = (request.headers.get("authorization") or "").strip()
     if not auth.lower().startswith("bearer "):
-        raise _std_error(401, "unauthorized", "Missing bearer token.")
-    return auth.split(" ", 1)[1].strip()
-
-
-def _require_auth_claims(request: Request) -> dict[str, Any]:
-    try:
-        return verify_access_token(_auth_bearer_token(request))
-    except ValueError as e:
-        raise _std_error(401, "unauthorized", str(e) or "Invalid or expired token.") from e
+        return None
+    return auth.split(" ", 1)[1].strip() or None
 
 
 def _require_auth_user(request: Request) -> str:
-    claims = _require_auth_claims(request)
-    sub = str(claims.get("sub") or "").strip()
-    if not sub:
-        raise _std_error(401, "unauthorized", "Token subject missing.")
-    return sub
+    """Local single-user mode — auth removed; portfolio/watchlists share one in-memory user."""
+    _ = request
+    return "local"
 
 
 def _startup_readiness_checks() -> None:
@@ -238,6 +321,9 @@ def _startup_readiness_checks() -> None:
         MODEL_DIR / "stock_score_regression.pkl",
         MODEL_DIR / "sentiment_logreg.pkl",
         MODEL_DIR / "tfidf_vectorizer.pkl",
+        MODEL_DIR / "keras_stockfundamentalsscorer.h5",
+        MODEL_DIR / "keras_X_scaler.pkl",
+        MODEL_DIR / "keras_Y_scaler.pkl",
     ]
     missing = [str(p) for p in required_paths if not p.exists()]
     if missing:
@@ -274,17 +360,16 @@ class SyncPushRequest(BaseModel):
     state: dict[str, Any] = Field(default_factory=dict)
 
 
-class UnstickEmailRequest(BaseModel):
-    email: str
-    password: str
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _startup_readiness_checks()
-    using = "dist" if (_FRONTEND_DIST / "index.html").exists() else "source tree (run `npm run build` in frontend-2 for production assets)"
+    using = "dist" if (_FRONTEND_DIST / "index.html").exists() else "source tree (run `npm run build` in frontend for production assets)"
     _LOG.warning("Frontend web root: %s (%s)", _FRONTEND_WEB_ROOT, using)
-    yield
+    started_labs = _start_reviewer_labs()
+    try:
+        yield
+    finally:
+        _stop_reviewer_labs(started_labs)
 
 
 app = FastAPI(title="AInvestify Stock Insights API", lifespan=lifespan)
@@ -308,6 +393,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_allow_origins(),
+    allow_origin_regex=_cors_origin_regex(),
     allow_credentials=_env_flag("CORS_ALLOW_CREDENTIALS", default=True),
     allow_methods=_parse_csv_env_list(
         "CORS_ALLOW_METHODS",
@@ -448,6 +534,25 @@ def chart(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
         raise _std_error(500, "chart_error", str(e))
 
 
+@app.get("/api/forecast/status")
+def forecast_status() -> dict:
+    return get_chart_forecast_status()
+
+
+@app.get("/api/forecast/chart/{ticker}")
+def forecast_chart(ticker: str, horizon_days: int = 63, refresh: bool = False) -> dict:
+    try:
+        return get_chart_forecast_image(
+            ticker=ticker, horizon_days=horizon_days, refresh=refresh
+        )
+    except ValueError as e:
+        raise _std_error(400, "bad_request", str(e))
+    except RuntimeError as e:
+        raise _std_error(503, "forecast_unavailable", str(e))
+    except Exception as e:
+        raise _std_error(500, "forecast_error", str(e))
+
+
 @app.get("/fundamentals/{ticker}")
 def fundamentals(ticker: str) -> dict:
     try:
@@ -466,6 +571,25 @@ def news(stock_name: str, max_articles: int = 10) -> dict:
         raise _std_error(400, "bad_request", str(e))
     except Exception as e:
         raise _std_error(500, "news_error", str(e))
+
+
+@app.get("/api/filings/status")
+def filings_status() -> dict:
+    return get_sec_filings_status()
+
+
+@app.get("/api/filings/{ticker}")
+def filings(ticker: str, limit: int = 25) -> dict:
+    try:
+        return get_sec_filings(ticker=ticker, limit=limit)
+    except SecConfigError as e:
+        # 503, not 500: the service is correctly built but not configured to
+        # talk to SEC. A different fix from a bug, so a different status.
+        raise _std_error(503, "sec_not_configured", str(e))
+    except ValueError as e:
+        raise _std_error(404, "not_found", str(e))
+    except Exception as e:
+        raise _std_error(502, "sec_error", str(e))
 
 
 @app.get("/tickers")
@@ -567,122 +691,6 @@ def report_export(payload: dict, request: Request) -> Response:
         raise _std_error(500, "report_export_error", str(e))
 
 
-def _supabase_admin_headers() -> dict[str, str]:
-    url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
-    service_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
-    if not url or not service_key:
-        raise _std_error(400, "supabase_admin_not_configured", "SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are required.")
-    return {
-        "apikey": service_key,
-        "Authorization": f"Bearer {service_key}",
-        "Content-Type": "application/json",
-    }
-
-
-def _supabase_url() -> str:
-    return (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
-
-
-def _supabase_find_user_by_email(email: str) -> dict[str, Any] | None:
-    headers = _supabase_admin_headers()
-    resp = requests.get(f"{_supabase_url()}/auth/v1/admin/users?page=1&per_page=1000", headers=headers, timeout=20)
-    if resp.status_code >= 400:
-        raise _std_error(500, "supabase_admin_error", f"Failed user lookup ({resp.status_code}).")
-    data = resp.json()
-    users = data.get("users") if isinstance(data, dict) else data
-    if not isinstance(users, list):
-        return None
-    e = email.strip().lower()
-    for u in users:
-        if isinstance(u, dict) and str(u.get("email") or "").strip().lower() == e:
-            return u
-    return None
-
-
-def _supabase_anon_key() -> str:
-    return (os.getenv("SUPABASE_ANON_KEY") or "").strip()
-
-
-def _password_grant_outcome(email: str, password: str) -> str:
-    """Classify password grant: ok | email_not_confirmed | wrong_password | no_anon | error."""
-    anon = _supabase_anon_key()
-    if not anon:
-        return "no_anon"
-    resp = requests.post(
-        f"{_supabase_url()}/auth/v1/token?grant_type=password",
-        headers={
-            "apikey": anon,
-            "Authorization": f"Bearer {anon}",
-            "Content-Type": "application/json",
-        },
-        json={"email": email, "password": password},
-        timeout=20,
-    )
-    if resp.status_code == 200:
-        return "ok"
-    try:
-        data = resp.json()
-    except Exception:
-        return "error"
-    err_code = str(data.get("error_code") or "").lower()
-    msg = str(data.get("msg") or data.get("error_description") or data.get("message") or "").lower()
-    blob = f"{err_code} {msg} {data}".lower()
-    if "email_not_confirmed" in blob or "email not confirmed" in msg:
-        return "email_not_confirmed"
-    if "invalid_grant" in blob or "invalid login credentials" in msg or err_code in {"invalid_credentials"}:
-        return "wrong_password"
-    return "error"
-
-
-def _supabase_admin_confirm_user_email(user_id: str) -> None:
-    headers = _supabase_admin_headers()
-    resp = requests.put(
-        f"{_supabase_url()}/auth/v1/admin/users/{user_id}",
-        headers=headers,
-        json={"email_confirm": True},
-        timeout=20,
-    )
-    if resp.status_code >= 400:
-        _LOG.warning("admin email_confirm failed: %s %s", resp.status_code, resp.text[:400])
-        raise _std_error(500, "confirm_failed", "Could not confirm email. Try again.")
-
-
-@app.post("/api/auth/unstick-email-confirm")
-def unstick_email_confirm(req: UnstickEmailRequest, request: Request) -> dict:
-    """For accounts created while 'confirm email' was on: verify password, then mark email confirmed (admin)."""
-    _check_rate_limit(
-        request,
-        "unstick_email_confirm",
-        _env_int("RATE_LIMIT_UNSTICK_EMAIL_COUNT", 8),
-        _env_int("RATE_LIMIT_UNSTICK_EMAIL_WINDOW_SECONDS", 3600),
-    )
-    email = (req.email or "").strip().lower()
-    password = (req.password or "").strip()
-    if "@" not in email or "." not in email:
-        raise _std_error(400, "invalid_email", "Please enter a valid email.")
-    out = _password_grant_outcome(email, password)
-    if out == "no_anon":
-        raise _std_error(
-            500,
-            "server_misconfigured",
-            "Set SUPABASE_ANON_KEY on the server to the project anon/publishable key (same as VITE_SUPABASE_ANON_KEY).",
-        )
-    if out == "wrong_password":
-        raise _std_error(401, "invalid_credentials", "Invalid email or password.")
-    if out == "ok":
-        return {"ok": True, "already_confirmed": True}
-    if out != "email_not_confirmed":
-        raise _std_error(400, "auth_error", "Could not verify account. Try again.")
-    user = _supabase_find_user_by_email(email)
-    if not user:
-        raise _std_error(400, "user_not_found", "No account found for this email.")
-    uid = str(user.get("id") or "").strip()
-    if not uid:
-        raise _std_error(500, "user_lookup_error", "Could not resolve user id.")
-    _supabase_admin_confirm_user_email(uid)
-    return {"ok": True, "fixed": True}
-
-
 @app.post("/api/auth/guest")
 def auth_guest() -> dict:
     return issue_guest_token()
@@ -708,4 +716,22 @@ def chatbot_status() -> dict:
         "provider_when_configured": "gemini",
         "provider_fallback": "local",
     }
+
+
+@app.get("/{full_path:path}")
+def frontend_file_or_spa(full_path: str) -> Response:
+    """Built files (logos, robots.txt) and client pages such as /models.
+
+    API routes above this one keep their own responses. This only runs when
+    nothing earlier matched.
+    """
+    if full_path.startswith("api/"):
+        return Response(status_code=404)
+    found = _built_frontend_file(full_path)
+    if found is not None:
+        return FileResponse(found)
+    spa = _spa_index_response()
+    if spa is not None:
+        return spa
+    return Response(status_code=404)
 

@@ -10,10 +10,11 @@ services:
       - key: ALLOWED_HOSTS
         value: "*.onrender.com,localhost,127.0.0.1"
       - key: FRONTEND_DIR
-        value: frontend-2
-      # Optional: set to your exact site URL(s) if you add a separate API domain or custom domain.
-      # - key: CORS_ALLOW_ORIGINS
-      #   value: "https://YOUR-SERVICE.onrender.com"
+        value: frontend
+      # The Pages site calls this API from the browser. Production and preview
+      # hostnames are both under pages.dev.
+      - key: CORS_ALLOW_ORIGIN_REGEX
+        value: "https://([a-z0-9-]+\\.)+pages\\.dev"
       - key: APP_ENV
         value: production
       - key: ENABLE_PROXY_HEADERS
@@ -38,22 +39,9 @@ services:
         value: "300"
       - key: GEMINI_TIMEOUT_SECONDS
         value: "12"
-      # --- Supabase (required for per-user portfolio / watchlists / JWT verification in production) ---
-      # Kept as active `sync: false` entries (not commented) so Blueprint apply surfaces them
-      # as required fields at setup. Values are entered in the dashboard, never stored in git.
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: VITE_SUPABASE_URL
-        sync: false
-      - key: VITE_SUPABASE_ANON_KEY
-        sync: false
-      # Optional if issuer differs from {SUPABASE_URL}/auth/v1
-      # - key: SUPABASE_JWT_ISSUER
-      #   value: https://YOUR_PROJECT.supabase.co/auth/v1
+      # Optional Gemini chatbot:
+      # - key: GEMINI_API_KEY
+      #   sync: false
       # --- WhatsApp alerts (pick one provider) ---
       # Twilio:
       # - key: TWILIO_ACCOUNT_SID

@@ -1,20 +1,16 @@
 # --- Build React SPA (dist/ is gitignored; image must include a real Vite build) ---
 FROM node:20-alpine AS frontend-build
-WORKDIR /app/frontend-2
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
-ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
-COPY frontend-2/package.json frontend-2/package-lock.json ./
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
-COPY frontend-2/ ./
+COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.11.14-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV FRONTEND_DIR=frontend-2
+ENV FRONTEND_DIR=frontend
 
 WORKDIR /app
 
@@ -37,7 +33,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-COPY --from=frontend-build /app/frontend-2/dist /app/frontend-2/dist
+COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
 EXPOSE 8000
 

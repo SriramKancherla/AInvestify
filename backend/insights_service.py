@@ -13,10 +13,10 @@ import requests
 import yfinance as yf
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-from Model_gens.webscrapernews import scrape_google_news_rss
+from backend.scoremodel.webscrapernews import scrape_google_news_rss
 from backend.chat_style_service import rewrite_chat_reply
 from backend.shared_utils import cached_call, request_with_retry
-from stock_insights import DATA_DIR, MODEL_DIR, get_insights
+from backend.scoremodel.engine import DATA_DIR, MODEL_DIR, get_insights
 
 
 NewsSource = Literal["auto", "dataset", "live"]
@@ -141,7 +141,7 @@ def compute_insights(
     max_news: int = 10,
 ) -> dict:
     """
-    Thin service wrapper around `stock_insights.get_insights()`.
+    Thin service wrapper around `backend.scoremodel.engine.get_insights()`.
 
     Kept separate so the FastAPI layer stays small.
     """
@@ -203,18 +203,24 @@ def get_ticker_options() -> dict:
     return {"count": len(options), "tickers": options}
 
 
+def _live_history(ticker_up: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
+    """Fetch Yahoo history; raise if empty/unavailable."""
+    t = yf.Ticker(ticker_up)
+    hist = t.history(period=period, interval=interval, auto_adjust=False)
+    if hist is None or hist.empty:
+        raise ValueError("empty history from yfinance")
+    return hist
+
+
 def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> dict:
     ticker_up = ticker.upper()
     chart_points = []
     source = "live_yfinance"
     error = None
+    current_price = None
 
     try:
-        t = yf.Ticker(ticker_up)
-        hist = t.history(period=period, interval=interval, auto_adjust=False)
-        if hist.empty:
-            raise ValueError("empty history from yfinance")
-
+        hist = _live_history(ticker_up, period=period, interval=interval)
         for idx, row in hist.iterrows():
             chart_points.append(
                 {
@@ -226,8 +232,9 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
                     "volume": int(row["Volume"]),
                 }
             )
+        current_price = float(hist["Close"].iloc[-1])
     except Exception as e:
-        # Fallback to local historical dataset.
+        # Fallback to local historical dataset (training CSV — often years stale).
         source = "dataset_stock_yfinance_data"
         error = str(e)
         ds = pd.read_csv(DATA_DIR / "stock_yfinance_data.csv")
@@ -235,6 +242,12 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
         if not sub.empty:
             sub["Date"] = pd.to_datetime(sub["Date"], errors="coerce")
             sub = sub.dropna(subset=["Date"]).sort_values("Date")
+            # Respect requested period approximately so UI doesn't dump full multi-year CSV.
+            period_days = {
+                "5d": 7, "1mo": 31, "3mo": 93, "6mo": 186, "1y": 370, "2y": 740, "5y": 1850, "max": 10_000,
+            }.get((period or "").lower(), 186)
+            cutoff = sub["Date"].max() - pd.Timedelta(days=period_days)
+            sub = sub.loc[sub["Date"] >= cutoff]
             for _, row in sub.iterrows():
                 chart_points.append(
                     {
@@ -246,6 +259,8 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
                         "volume": int(row["Volume"]),
                     }
                 )
+            if chart_points:
+                current_price = float(chart_points[-1]["close"])
         else:
             # Last-resort synthetic fallback for symbols with no yfinance/dataset history.
             # Keeps UI usable for delisted or sparse symbols from fundamentals universe.
@@ -260,6 +275,7 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
                 raise ValueError(f"No chart data found for ticker '{ticker_up}'.")
 
             source = "fallback_synthetic_from_fundamentals"
+            current_price = base_price
             today = pd.Timestamp.utcnow().normalize()
             for i in range(30):
                 d = (today - pd.Timedelta(days=(29 - i))).strftime("%Y-%m-%d")
@@ -280,6 +296,8 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> di
         "interval": interval,
         "source": source,
         "source_error": error,
+        "stale": source != "live_yfinance",
+        "current_price": current_price,
         "points": chart_points,
     }
 
@@ -297,11 +315,27 @@ def get_fundamentals_data(ticker: str) -> dict:
 
     info = {}
     info_error = None
+    live_last_close = None
+    price_source = "dataset"
     try:
+        # Prefer last close from short history — more reliable than t.info under rate limits.
+        hist = _live_history(ticker.upper(), period="5d", interval="1d")
+        live_last_close = float(hist["Close"].iloc[-1])
+        price_source = "live_yfinance"
         t = yf.Ticker(ticker)
         info = t.info or {}
     except Exception as e:
         info_error = str(e)
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info or {}
+            live_price = info.get("currentPrice") or info.get("regularMarketPrice")
+            if live_price is not None:
+                live_last_close = float(live_price)
+                price_source = "live_yfinance_info"
+                info_error = None
+        except Exception as e2:
+            info_error = f"{info_error}; {e2}" if info_error else str(e2)
 
     # Dataset fallback to avoid empty fundamentals when live provider misses fields.
     dataset_row = None
@@ -326,21 +360,29 @@ def get_fundamentals_data(ticker: str) -> dict:
         except Exception:
             return None
 
+    current_price = live_last_close
+    if current_price is None:
+        current_price = _pick(None, "Price")
+        price_source = "dataset" if current_price is not None else price_source
+
+    dividend_yield = _pick(info.get("dividendYield"), "Dividend_Yield")
+
     return {
         "ticker": ticker.upper(),
         "fundamentals_score": insights["fundamentals"]["score"],
         "fundamentals_source": insights["fundamentals"].get("source"),
         "fundamentals_meta": insights["fundamentals"].get("meta"),
         "model_scores": insights["fundamentals"]["model_scores"],
+        "price_source": price_source,
         "metrics": {
             "market_cap": _pick(info.get("marketCap"), "Market_Cap"),
-            "current_price": _pick(info.get("currentPrice") or info.get("regularMarketPrice"), "Price"),
+            "current_price": current_price,
             "pe_ratio": _pick(info.get("trailingPE"), "Price/Earnings"),
             "pb_ratio": _pick(info.get("priceToBook"), "Price/Book"),
             "price_to_sales": _pick(info.get("priceToSalesTrailing12Months"), "Price/Sales"),
             "book_value": _pick(info.get("bookValue"), "Book_Value"),
             "ebitda": _pick(info.get("ebitda"), "EBITDA"),
-            "dividend_yield": _pick(info.get("dividendYield"), "Dividend_Yield"),
+            "dividend_yield": dividend_yield,
             "fifty_two_week_high": _pick(info.get("fiftyTwoWeekHigh"), "52w_high"),
             "fifty_two_week_low": _pick(info.get("fiftyTwoWeekLow"), "52w_low"),
         },

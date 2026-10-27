@@ -27,7 +27,8 @@ def _service_key() -> str:
 
 
 def _use_supabase() -> bool:
-    return bool(_supabase_url() and _service_key())
+    # Auth / Supabase removed from the product — always use in-memory stores.
+    return False
 
 
 def _sb_headers() -> dict[str, str]:
